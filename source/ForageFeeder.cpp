@@ -84,19 +84,14 @@ void gpio_callback_quad_encoder(uint gpio, uint32_t events) {
 #endif
 
 #if PWM_ENABLE
-void on_pwm_wrap_one() {
+void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    pwm_set_gpio_level(PWM_IN_ONE, 2058);
+    pwm_set_gpio_level(PWM_IN_ONE, 2048);
+    pwm_set_gpio_level(PWM_IN_TWO, 1024);
 }
 
-// void on_pwm_wrap_two() {
-
-//     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_TWO));
-
-//     pwm_set_gpio_level(PWM_IN_TWO, 1024);
-// }
 #endif
 
 // Interupt Callback Routines - END
@@ -161,38 +156,23 @@ int main()
     gpio_init(PWM_EN);
     gpio_set_dir(PWM_EN, GPIO_OUT);
 
-// PWM 1
     gpio_set_function(PWM_IN_ONE, GPIO_FUNC_PWM);
-    uint slice_num_one = pwm_gpio_to_slice_num(PWM_IN_ONE);
-    pwm_clear_irq(slice_num_one);
-    pwm_set_irq_enabled(slice_num_one, true);
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap_one);
+    gpio_set_function(PWM_IN_TWO, GPIO_FUNC_PWM);
+
+    uint slice_num = pwm_gpio_to_slice_num(PWM_IN_ONE); // slice_num for both PWM_IN_ONE and PWM_IN_TWO = 5
+    
+    pwm_clear_irq(slice_num);
+    pwm_set_irq_enabled(slice_num, true);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);
     irq_set_enabled(PWM_IRQ_WRAP, true);
 
-// PWM 2
-    // gpio_set_function(PWM_IN_TWO, GPIO_FUNC_PWM);
-    // uint slice_num_two = pwm_gpio_to_slice_num(PWM_IN_TWO);
-    // pwm_clear_irq(slice_num_two);
-    // pwm_set_irq_enabled(slice_num_two, true);
-    // irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap_two);
-    // irq_set_enabled(PWM_IRQ_WRAP, true);
-
-// PWM 1
-    pwm_config config_one = pwm_get_default_config();
-    pwm_init(slice_num_one, &config_one, false);
-    pwm_set_wrap(slice_num_one, 4096);  
-    pwm_set_enabled(slice_num_one, true);
-
-// PWM 2
-    // pwm_config config_two = pwm_get_default_config();
-    // pwm_init(slice_num_two, &config_two, false);
-    // pwm_set_wrap(slice_num_two, 4096);  
-    // pwm_set_enabled(slice_num_two, true);
+    pwm_config config = pwm_get_default_config();
+    // pwm_config_set_clkdiv(&config_one, 1);
+    pwm_config_set_wrap(&config, 4096);
+    pwm_init(slice_num, &config, true);
 
     gpio_put(PWM_EN, GPIO_ON);
-
 #endif
-
 
     BaseType_t status;
 
@@ -212,7 +192,6 @@ int main()
     while(true) {
         /* Nothing here should run */ 
     }
-
 }
 
 void vGreenLEDTask( void * pvParameters )
