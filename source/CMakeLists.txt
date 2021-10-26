@@ -1,8 +1,8 @@
-set(OUTPUT_NAME swc-pico-base)
+set(OUTPUT_NAME swc-pico-forage_feeder)
 
 add_executable(
   ${OUTPUT_NAME}
-  base.cpp
+  ForageFeeder.cpp
 )
 
 FILE(GLOB FreeRTOS_src ../freeRTOS/*.c)

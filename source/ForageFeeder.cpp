@@ -3,35 +3,41 @@
 // #include <string.h>
 // #include <cstdlib>
 
+// Demo switches
+#define SCREEN_TEXT         1
+#define PWM_ENABLE          1
+#define QUAD_ENCODER        1
+
 // #include <stdio.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 #include "hardware/irq.h"
+#if PWM_ENABLE
 #include "hardware/pwm.h"
+#endif
 #include "FreeRTOS.h"
 #include "task.h"
 
 #include "breakout_colourlcd240x240.hpp"
-
 #include "gfxfont.h"
-#include "FreeMono12pt7b.h"
+// #include "FreeMono12pt7b.h"
 #include "FreeSansBoldOblique12pt7b.h"
-#include "FreeSerif24pt7b.h"
-
-
-// Screen demo switches
-#define SCREEN_TEXT         1
+// #include "FreeSerif24pt7b.h"
 
 #define ROTARY_SW           7
 #define ROTARY_A            8
 #define ROTARY_B            9
+#if PWM_ENABLE
 #define PWM_IN_ONE          10
-#define PWN_IN_TWO          11
+#define PWM_IN_TWO          11
+#define PWM_EN              14
+#endif
+#if QUAD_ENCODER
 #define ENC_ONE             12
 #define ENC_TWO             13
-#define PWM_EN              14
+#endif
 #define GREEN_LED_PIN       25
 
 #define GPIO_ON             1
@@ -67,38 +73,31 @@ void gpio_callback_rotary(uint gpio, uint32_t events) {
     printf("GPIO %d %s\n", gpio, event_str);
 }
 
-void gpio_callback_motor(uint gpio, uint32_t events) {
+#if QUAD_ENCODER
+void gpio_callback_quad_encoder(uint gpio, uint32_t events) {
     // Put the GPIO event(s) that just happened into event_str
     // so we can print it
     gpio_event_string(event_str, events);
     // sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
     printf("GPIO %d %s\n", gpio, event_str);
 }
+#endif
 
+#if PWM_ENABLE
 void on_pwm_wrap_one() {
-    // static int fade = 0;
-    // static bool going_up = true;
-    // Clear the interrupt flag that brought us here
+
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    // if (going_up) {
-    //     ++fade;
-    //     if (fade > 255) {
-    //         fade = 255;
-    //         going_up = false;
-    //     }
-    // } else {
-    //     --fade;
-    //     if (fade < 0) {
-    //         fade = 0;
-    //         going_up = true;
-    //     }
-    // }
-    // Square the fade value to make the LED's brightness appear more linear
-    // Note this range matches with the wrap value
-    // pwm_set_gpio_level(PWM_IN_ONE, fade * fade);
     pwm_set_gpio_level(PWM_IN_ONE, 2058);
 }
+
+// void on_pwm_wrap_two() {
+
+//     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_TWO));
+
+//     pwm_set_gpio_level(PWM_IN_TWO, 1024);
+// }
+#endif
 
 // Interupt Callback Routines - END
 
@@ -136,7 +135,6 @@ void swc_base() {
     // lcd.customFontSetFont();
     // sprintf(lcd_message_str, "Hello");
     lcd.text(lcd_message_str, Point(0, 30), 240, 1);  
-    // lcd.text("Wellcome", Point(0, 30), 240, 1); 
 
 #endif
     // update screen
@@ -151,17 +149,19 @@ int main()
 
     stdio_init_all();
 
-    printf("Hello GPIO IRQ\n");
-    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_motor);
-    gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_motor);
-    
+#if QUAD_ENCODER
+    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_quad_encoder);
+    gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_quad_encoder);
+#endif
+
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
 
-    //PWM_EN
+#if PWM_ENABLE  //PWM_EN
     gpio_init(PWM_EN);
     gpio_set_dir(PWM_EN, GPIO_OUT);
 
+// PWM 1
     gpio_set_function(PWM_IN_ONE, GPIO_FUNC_PWM);
     uint slice_num_one = pwm_gpio_to_slice_num(PWM_IN_ONE);
     pwm_clear_irq(slice_num_one);
@@ -169,16 +169,30 @@ int main()
     irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap_one);
     irq_set_enabled(PWM_IRQ_WRAP, true);
 
+// PWM 2
+    // gpio_set_function(PWM_IN_TWO, GPIO_FUNC_PWM);
+    // uint slice_num_two = pwm_gpio_to_slice_num(PWM_IN_TWO);
+    // pwm_clear_irq(slice_num_two);
+    // pwm_set_irq_enabled(slice_num_two, true);
+    // irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap_two);
+    // irq_set_enabled(PWM_IRQ_WRAP, true);
 
+// PWM 1
     pwm_config config_one = pwm_get_default_config();
-    // Set divider, reduces counter clock to sysclock/this value
-    // pwm_config_set_clkdiv(&config_one, 4.f);
-    // Load the configuration into our PWM slice, and set it running.
     pwm_init(slice_num_one, &config_one, false);
-    
     pwm_set_wrap(slice_num_one, 4096);  
     pwm_set_enabled(slice_num_one, true);
+
+// PWM 2
+    // pwm_config config_two = pwm_get_default_config();
+    // pwm_init(slice_num_two, &config_two, false);
+    // pwm_set_wrap(slice_num_two, 4096);  
+    // pwm_set_enabled(slice_num_two, true);
+
     gpio_put(PWM_EN, GPIO_ON);
+
+#endif
+
 
     BaseType_t status;
 
