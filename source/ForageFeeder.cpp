@@ -38,6 +38,7 @@
 #define ENC_ONE             12
 #define ENC_TWO             13
 #endif
+#define BEAM_BREAK_PIN      15
 #define GREEN_LED_PIN       25
 
 #define GPIO_ON             1
@@ -57,7 +58,7 @@ void gpio_event_string(char *buf, uint32_t events);
 
 
 // Interupt Callback Routines - START
-void gpio_callback_rotary_sw(uint gpio, uint32_t events) {
+void gpio_callback_core_1(uint gpio, uint32_t events) {
     // Put the GPIO event(s) that just happened into event_str
     // so we can print it
     gpio_event_string(event_str, events);
@@ -65,23 +66,23 @@ void gpio_callback_rotary_sw(uint gpio, uint32_t events) {
     printf("GPIO %d %s\n", gpio, event_str);
 }
 
-void gpio_callback_rotary(uint gpio, uint32_t events) {
-    // Put the GPIO event(s) that just happened into event_str
-    // so we can print it
-    gpio_event_string(event_str, events);
-    sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
-    printf("GPIO %d %s\n", gpio, event_str);
-}
+// void gpio_callback_rotary(uint gpio, uint32_t events) {
+//     // Put the GPIO event(s) that just happened into event_str
+//     // so we can print it
+//     gpio_event_string(event_str, events);
+//     sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
+//     printf("GPIO %d %s\n", gpio, event_str);
+// }
 
-#if QUAD_ENCODER
-void gpio_callback_quad_encoder(uint gpio, uint32_t events) {
+// #if QUAD_ENCODER
+void gpio_callback_core_0(uint gpio, uint32_t events) {
     // Put the GPIO event(s) that just happened into event_str
     // so we can print it
     gpio_event_string(event_str, events);
     // sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
     printf("GPIO %d %s\n", gpio, event_str);
 }
-#endif
+// #endif
 
 #if PWM_ENABLE
 void on_pwm_wrap() {
@@ -111,9 +112,9 @@ void swc_base() {
   
     printf("Hello GPIO IRQ\n");
     sprintf(lcd_message_str, "Hello GPIO IRQ");
-    gpio_set_irq_enabled_with_callback(ROTARY_SW, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_rotary_sw);
-    gpio_set_irq_enabled_with_callback(ROTARY_A, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_rotary);
-    gpio_set_irq_enabled_with_callback(ROTARY_B, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_rotary);
+    gpio_set_irq_enabled_with_callback(ROTARY_SW, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
+    gpio_set_irq_enabled_with_callback(ROTARY_A, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
+    gpio_set_irq_enabled_with_callback(ROTARY_B, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
 
     lcd.init();
     lcd.set_backlight(255);
@@ -145,9 +146,12 @@ int main()
     stdio_init_all();
 
 #if QUAD_ENCODER
-    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_quad_encoder);
-    gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_quad_encoder);
+    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 #endif
+
+// BEAM_BREAK_PIN 
+    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
