@@ -49,13 +49,11 @@ using namespace pimoroni;
 uint16_t buffer[BreakoutColourLCD240x240::WIDTH * BreakoutColourLCD240x240::HEIGHT];
 BreakoutColourLCD240x240 lcd(buffer);
 
-
 static char event_str[128];
 
 char lcd_message_str[20];
 
 void gpio_event_string(char *buf, uint32_t events);
-
 
 // Interupt Callback Routines - START
 void gpio_callback_core_1(uint gpio, uint32_t events) {
@@ -66,23 +64,27 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
     printf("GPIO %d %s\n", gpio, event_str);
 }
 
-// void gpio_callback_rotary(uint gpio, uint32_t events) {
-//     // Put the GPIO event(s) that just happened into event_str
-//     // so we can print it
-//     gpio_event_string(event_str, events);
-//     sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
-//     printf("GPIO %d %s\n", gpio, event_str);
-// }
-
-// #if QUAD_ENCODER
 void gpio_callback_core_0(uint gpio, uint32_t events) {
-    // Put the GPIO event(s) that just happened into event_str
-    // so we can print it
-    gpio_event_string(event_str, events);
-    // sprintf(lcd_message_str, "GPIO %d %s\n", gpio, event_str);
-    printf("GPIO %d %s\n", gpio, event_str);
+
+    switch(gpio) {
+#if QUAD_ENCODER
+        case ENC_ONE:
+
+            break;
+        case ENC_TWO:
+        
+            break;
+#endif
+        case BEAM_BREAK_PIN:
+            gpio_event_string(event_str, events);
+            printf("GPIO %d %s\n", gpio, event_str);
+            break;
+        default:
+
+            break;
+    }
+
 }
-// #endif
 
 #if PWM_ENABLE
 void on_pwm_wrap() {
