@@ -49,6 +49,10 @@ using namespace pimoroni;
 uint16_t buffer[BreakoutColourLCD240x240::WIDTH * BreakoutColourLCD240x240::HEIGHT];
 BreakoutColourLCD240x240 lcd(buffer);
 
+bool motor_direction;
+int motor_postion = 0;
+bool pellet_delivered;
+
 static char event_str[128];
 
 char lcd_message_str[20];
@@ -69,13 +73,25 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
     switch(gpio) {
 #if QUAD_ENCODER
         case ENC_ONE:
-
+            motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));    // For some unknown reason, the compiler does not like adding the ! here
+            motor_direction = !motor_direction;                             // If you put ! here then it works 100% of the time
+            if (motor_direction){
+                motor_postion++;
+            } else{
+                motor_postion--;
+            }
             break;
         case ENC_TWO:
-        
+            motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
+            if (motor_direction){
+                motor_postion++;
+            } else{
+                motor_postion--;
+            }
             break;
 #endif
         case BEAM_BREAK_PIN:
+            pellet_delivered = true;
             gpio_event_string(event_str, events);
             printf("GPIO %d %s\n", gpio, event_str);
             break;
@@ -91,8 +107,8 @@ void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    pwm_set_gpio_level(PWM_IN_ONE, 2048);
-    pwm_set_gpio_level(PWM_IN_TWO, 1024);
+    pwm_set_gpio_level(PWM_IN_ONE, 1024);
+    pwm_set_gpio_level(PWM_IN_TWO, 0);
 }
 
 #endif
@@ -148,12 +164,12 @@ int main()
     stdio_init_all();
 
 #if QUAD_ENCODER
-    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    // gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
     gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 #endif
 
 // BEAM_BREAK_PIN 
-    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
