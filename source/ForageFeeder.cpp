@@ -25,6 +25,7 @@
 // #include "FreeMono12pt7b.h"
 #include "FreeSansBoldOblique12pt7b.h"
 // #include "FreeSerif24pt7b.h"
+#include "pid.h"
 
 #define ROTARY_SW           7
 #define ROTARY_A            8
@@ -44,13 +45,35 @@
 #define GPIO_ON             1
 #define GPIO_OFF            0
 
+/* Controller parameters */
+#define PID_KP  2.0f
+#define PID_KI  0.5f
+#define PID_KD  0.25f
+
+#define PID_TAU 0.02f
+
+#define PID_LIM_MIN -10.0f
+#define PID_LIM_MAX  10.0f
+
+#define PID_LIM_MIN_INT -5.0f
+#define PID_LIM_MAX_INT  5.0f
+
+#define SAMPLE_TIME_S 0.01f
+
 using namespace pimoroni;
 
 uint16_t buffer[BreakoutColourLCD240x240::WIDTH * BreakoutColourLCD240x240::HEIGHT];
 BreakoutColourLCD240x240 lcd(buffer);
 
+PIDController pid = { PID_KP, PID_KI, PID_KD,
+                        PID_TAU,
+                        PID_LIM_MIN, PID_LIM_MAX,
+                        PID_LIM_MIN_INT, PID_LIM_MAX_INT,
+                        SAMPLE_TIME_S };
+
 bool motor_direction;
 int motor_postion = 0;
+int motor_postion_old = 0;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
 bool pellet_delivered;
@@ -230,7 +253,9 @@ int main()
                   tskIDLE_PRIORITY + 1,           // Task Priority
                   &xUpdateScreenHandle );  
 
-    
+
+    PIDController_Init(&pid);
+
     vTaskStartScheduler();
 
     while(true) {
@@ -264,7 +289,10 @@ void vUpdateScreenTask( void * pvParameters )
 {
     for( ;; )
     {
-        printf("Position %d\n", motor_postion);
+        if (motor_postion != motor_postion_old){
+            printf("Position %d\n", motor_postion);
+        }
+        motor_postion_old = motor_postion;
         vTaskDelay(100);
     }
 }
