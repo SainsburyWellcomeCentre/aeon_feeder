@@ -71,12 +71,15 @@ PIDController pid = { PID_KP, PID_KI, PID_KD,
                         PID_LIM_MIN_INT, PID_LIM_MAX_INT,
                         SAMPLE_TIME_S };
 
-bool motor_direction;
+struct repeating_timer control_loop;
+
+volatile bool motor_direction;
 int motor_postion = 0;
 int motor_postion_old = 0;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
-bool pellet_delivered;
+volatile bool pellet_delivered;
+volatile bool LED_TOGGLE;
 
 static char event_str[128];
 
@@ -130,6 +133,20 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             break;
     }
 
+}
+
+bool repeating_timer_callback(struct repeating_timer *t) {
+    if (LED_TOGGLE){
+        gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        LED_TOGGLE = !LED_TOGGLE;
+    } else {
+        gpio_put(GREEN_LED_PIN, GPIO_ON);
+        LED_TOGGLE = !LED_TOGGLE;
+    }
+
+
+    // printf("Repeat at %lld\n", time_us_64());
+    return true;
 }
 
 #if PWM_ENABLE
@@ -253,6 +270,7 @@ int main()
                   tskIDLE_PRIORITY + 1,           // Task Priority
                   &xUpdateScreenHandle );  
 
+    add_repeating_timer_us(-1000, repeating_timer_callback, NULL, &control_loop);
 
     PIDController_Init(&pid);
 
@@ -278,9 +296,9 @@ void vApplicationTask( void * pvParameters )
 {
     for( ;; )
     {
-        gpio_put(GREEN_LED_PIN, GPIO_ON);
+        // gpio_put(GREEN_LED_PIN, GPIO_ON);
         vTaskDelay(1);
-        gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        // gpio_put(GREEN_LED_PIN, GPIO_OFF);
         vTaskDelay(1);
     }
 }
