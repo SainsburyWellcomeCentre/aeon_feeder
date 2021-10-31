@@ -51,11 +51,18 @@ BreakoutColourLCD240x240 lcd(buffer);
 
 bool motor_direction;
 int motor_postion = 0;
+uint16_t set_pwm_one = 0;
+uint16_t set_pwm_two = 0;
 bool pellet_delivered;
 
 static char event_str[128];
 
 char lcd_message_str[20];
+
+// Define FreeRTOS Task
+void vGreenLEDTask( void * pvParameters );
+void vApplicationTask( void * pvParameters );
+void vUpdateScreenTask( void * pvParameters );
 
 void gpio_event_string(char *buf, uint32_t events);
 
@@ -107,16 +114,13 @@ void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    pwm_set_gpio_level(PWM_IN_ONE, 1024);
-    pwm_set_gpio_level(PWM_IN_TWO, 0);
+    pwm_set_gpio_level(PWM_IN_ONE, set_pwm_one);
+    pwm_set_gpio_level(PWM_IN_TWO, set_pwm_two);
 }
 
 #endif
 
 // Interupt Callback Routines - END
-
-// Define FreeRTOS Task
-void vGreenLEDTask( void * pvParameters );
 
 static const char *gpio_irq_str[] = {
         "LEVEL_LOW",  // 0x1
@@ -199,6 +203,8 @@ int main()
     BaseType_t status;
 
     TaskHandle_t xGreenLEDHandle = NULL;
+    TaskHandle_t xApplicationHandle = NULL;
+    TaskHandle_t xUpdateScreenHandle = NULL;
 
     status = xTaskCreate(
                   vGreenLEDTask,                  // Task Function
@@ -207,6 +213,22 @@ int main()
                   NULL,                           // Parameter passed to task
                   tskIDLE_PRIORITY + 1,           // Task Priority
                   &xGreenLEDHandle );   
+
+    status = xTaskCreate(
+                  vApplicationTask,               // Task Function
+                  "Application Task",             // Task Name
+                  1024,                           // Stack size in words
+                  NULL,                           // Parameter passed to task
+                  tskIDLE_PRIORITY + 2,           // Task Priority
+                  &xApplicationHandle );  
+
+    status = xTaskCreate(
+                  vUpdateScreenTask,              // Task Function
+                  "Update Screen Task",           // Task Name
+                  512,                            // Stack size in words
+                  NULL,                           // Parameter passed to task
+                  tskIDLE_PRIORITY + 1,           // Task Priority
+                  &xUpdateScreenHandle );  
 
     
     vTaskStartScheduler();
@@ -220,10 +242,30 @@ void vGreenLEDTask( void * pvParameters )
 {
     for( ;; )
     {
+        // gpio_put(GREEN_LED_PIN, GPIO_ON);
+        // vTaskDelay(200);
+        // gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        // vTaskDelay(200);
+    }
+}
+
+void vApplicationTask( void * pvParameters )
+{
+    for( ;; )
+    {
         gpio_put(GREEN_LED_PIN, GPIO_ON);
-        vTaskDelay(200);
+        vTaskDelay(1);
         gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        vTaskDelay(200);
+        vTaskDelay(1);
+    }
+}
+
+void vUpdateScreenTask( void * pvParameters )
+{
+    for( ;; )
+    {
+        printf("Position %d\n", motor_postion);
+        vTaskDelay(100);
     }
 }
 
