@@ -103,10 +103,15 @@ struct repeating_timer control_loop;
 
 volatile bool rotary_direction;
 volatile bool rotary_int;
+volatile bool rotary_rotation_flag;
+volatile bool rotary_switch_In_flag;
+volatile bool rotary_switch_Out_flag;
 volatile bool motor_direction;
 int motor_postion = 0;
 int motor_postion_old = 0;
 int motor_speed = 0;
+int motor_speed_old = 0;
+int speed_setpoint = 0;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
 volatile bool pellet_delivered;
@@ -137,6 +142,7 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
                 case EDGE_FALL:
                     if (rotary_int){
                         rotary_direction = ROTARY_LEFT;
+                        rotary_rotation_flag = true;
                         printf("Rotary Left\n");
                     } else {
                         rotary_int = true;
@@ -154,6 +160,7 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
                 case EDGE_FALL:
                     if (rotary_int){
                         rotary_direction = ROTARY_RIGHT;
+                        rotary_rotation_flag = true;
                         printf("Rotary Right\n");
                     } else {
                         rotary_int = true;
@@ -169,9 +176,11 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
         case ROTARY_SW:
             switch(events) {
                 case EDGE_FALL:
+                    rotary_switch_In_flag = true;
                     printf("Rotary Switch IN\n");
                     break;
                 case EDGE_RISE:
+                    rotary_switch_Out_flag = true;
                     printf("Rotary Switch OUT\n");
                     break;
                 default:
@@ -240,6 +249,19 @@ void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
+    if (speed_setpoint == 0) {
+        set_pwm_two = 0;
+        set_pwm_one = 0;
+    } else if (speed_setpoint > 0) {
+        set_pwm_one = speed_setpoint;
+        if (set_pwm_one > 4095) set_pwm_one = 4095;
+        set_pwm_two = 0;
+    } else {
+        set_pwm_two = speed_setpoint*-1;
+        if (set_pwm_two > 4095) set_pwm_two = 4095;
+        set_pwm_one = 0;
+    }
+
     pwm_set_gpio_level(PWM_IN_ONE, set_pwm_one);
     pwm_set_gpio_level(PWM_IN_TWO, set_pwm_two);
 }
@@ -294,7 +316,7 @@ int main()
     stdio_init_all();
 
 #if QUAD_ENCODER
-    // gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(ENC_ONE, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
     gpio_set_irq_enabled_with_callback(ENC_TWO, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 #endif
 
@@ -385,10 +407,26 @@ void vApplicationTask( void * pvParameters )
 
     for( ;; )
     {
-        // gpio_put(GREEN_LED_PIN, GPIO_ON);
-        vTaskDelay(1);
+        if (rotary_rotation_flag) {
+            if (rotary_direction) {
+                speed_setpoint += 250;
+            } else {
+                speed_setpoint -= 250;
+            }
+            rotary_rotation_flag = false;
+        }
+        if (rotary_switch_In_flag) {
+            speed_setpoint = 4095;
+            rotary_switch_In_flag = false;
+        }
+        if (rotary_switch_Out_flag) {
+            speed_setpoint = 0;
+            rotary_switch_Out_flag = false;
+        }
+        vTaskDelay(10);
+        
         // gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        vTaskDelay(1);
+        // vTaskDelay(1);
     }
 }
 
@@ -397,7 +435,7 @@ void vUpdateScreenTask( void * pvParameters )
     for( ;; )
     {
         if (motor_postion != motor_postion_old){
-            printf("Position %d\n", motor_postion);
+            printf("Speed %d\n", motor_speed);
         }
         motor_postion_old = motor_postion;
         vTaskDelay(10);
