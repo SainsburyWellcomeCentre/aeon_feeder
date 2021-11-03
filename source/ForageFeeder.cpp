@@ -14,6 +14,8 @@
 #include "hardware/gpio.h"
 #include "pico/time.h"
 #include "hardware/irq.h"
+#include "hardware/timer.h"
+#include "hardware/divider.h"
 #if PWM_ENABLE
 #include "hardware/pwm.h"
 #endif
@@ -107,15 +109,28 @@ volatile bool rotary_rotation_flag;
 volatile bool rotary_switch_In_flag;
 volatile bool rotary_switch_Out_flag;
 volatile bool motor_direction;
-int motor_postion = 0;
-int motor_postion_old = 0;
-int motor_speed = 0;
-int motor_speed_old = 0;
+volatile uint32_t time_new;
+volatile uint32_t time_old;
+volatile uint32_t time_dif;
+volatile int32_t time_dif_sum;
+volatile int32_t time_dif_sum_buf;
+volatile int32_t delta_time_hw_q;
+volatile int32_t motor_speed_hw_q;
+uint32_t time_hi;
+volatile int32_t time_sample_count = 0;
+volatile int32_t time_sample_count_buf = 0;
+volatile int32_t motor_position = 0;
+volatile int32_t motor_position_buf = 0;
+volatile int32_t motor_position_old = 0;
 int speed_setpoint = 0;
+volatile int32_t delta_position;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
 volatile bool pellet_delivered;
 volatile bool LED_TOGGLE;
+
+divmod_result_t delta_time_hw;
+divmod_result_t motor_speed_hw;
 
 static char event_str[128];
 
@@ -201,21 +216,34 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
     switch(gpio) {
 #if QUAD_ENCODER
         case ENC_ONE:
-            motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));    // For some unknown reason, the compiler does not like adding the ! here
-            motor_direction = !motor_direction;                             // If you put ! here then it works 100% of the time
-            if (motor_direction){
-                motor_postion++;
-            } else{
-                motor_postion--;
-            }
+            // I'm ignoring this one for now as it has an odd trigger where the time dif is 1us (so not correct)
+            // The resolution loss should not be a problem in this case.
+            // motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));    // For some unknown reason, the compiler does not like adding the ! here
+            // motor_direction = !motor_direction;                             // If you put ! here then it works 100% of the time
+            // if (motor_direction){
+            //     motor_position++;
+            // } else{
+            //     motor_position--;
+            // }
+            // time_new = timer_hw->timelr;
+            // time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it
+            // time_dif = time_new - time_old;
+            // time_old = time_new;
+            // time_sample_count++;
             break;
         case ENC_TWO:
             motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
             if (motor_direction){
-                motor_postion++;
+                motor_position++;
             } else{
-                motor_postion--;
+                motor_position--;
             }
+            time_new = timer_hw->timelr;
+            time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
+            time_dif = time_new - time_old;
+            time_dif_sum += time_dif;
+            time_sample_count++;
+            time_old = time_new;
             break;
 #endif
         case BEAM_BREAK_PIN:
@@ -240,7 +268,7 @@ bool repeating_timer_callback(struct repeating_timer *t) {
     //     gpio_put(GREEN_LED_PIN, GPIO_ON);
     //     LED_TOGGLE = !LED_TOGGLE;
     // }
-    motor_speed = motor_postion - motor_postion_old;
+    // motor_speed = motor_position - motor_position_old;
     return true;
 }
 
@@ -432,13 +460,29 @@ void vApplicationTask( void * pvParameters )
 
 void vUpdateScreenTask( void * pvParameters )
 {
+    
+
     for( ;; )
     {
-        if (motor_postion != motor_postion_old){
-            printf("Speed %d\n", motor_speed);
+        if (motor_position != motor_position_old) {
+            // delta_position = motor_position - motor_position_old;
+            delta_position = (motor_position - motor_position_old) << 16 ;
+            // delta_position = (motor_position - motor_position_old) * 1000 ;
+            delta_time_hw = hw_divider_divmod_u32(time_dif_sum, time_sample_count);
+            delta_time_hw_q = to_quotient_u32(delta_time_hw);
+            motor_speed_hw = hw_divider_divmod_s32(delta_position,delta_time_hw_q);
+            motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+            // delta_time_hw_q = time_dif_sum / time_sample_count;
+            // motor_speed_hw_q = delta_position / delta_time_hw_q;
+            // printf("D %d P %d p %d T %d C %d\n", delta_position, motor_position, motor_position_old, time_dif_sum, time_sample_count);
+            // printf("D %d T %d S %d C %d\n", delta_position, to_quotient_u32(delta_time_hw), time_dif_sum, time_sample_count);
+            printf("S %d D %d T %d\n", motor_speed_hw_q, delta_position, delta_time_hw_q);
+            motor_position_old = motor_position;
+            time_dif_sum = 0;
+            time_sample_count = 0;
         }
-        motor_postion_old = motor_postion;
-        vTaskDelay(10);
+            
+        vTaskDelay(2);
     }
 }
 
