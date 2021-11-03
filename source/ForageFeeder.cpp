@@ -55,19 +55,21 @@
 #define EDGE_RISE           0x8
 
 /* Velocity Controller parameters */
-#define PID_VEL_KP  2.0f
-#define PID_VEL_KI  0.5f
-#define PID_VEL_KD  0.25f
+#define PID_VEL_KP  1.0f
+#define PID_VEL_KI  0.1f
+#define PID_VEL_KD  0.002f
 
-#define PID_VEL_TAU 0.02f
+#define PID_VEL_TAU 0.200f
 
-#define PID_VEL_LIM_MIN -10.0f
-#define PID_VEL_LIM_MAX  10.0f
+#define PID_VEL_LIM_MIN -4095.0f
+#define PID_VEL_LIM_MAX  4095.0f
+// #define PID_VEL_LIM_MIN -1000.0f
+// #define PID_VEL_LIM_MAX  1000.0f
 
-#define PID_VEL_LIM_MIN_INT -5.0f
-#define PID_VEL_LIM_MAX_INT  5.0f
+#define PID_VEL_LIM_MIN_INT -4095.0f
+#define PID_VEL_LIM_MAX_INT  4095.0f
 
-#define SAMPLE_TIME_VEL_S 0.001f
+#define SAMPLE_TIME_VEL_S 0.002f
 
 /* Position Controller parameters */
 #define PID_POS_KP  2.0f
@@ -82,7 +84,7 @@
 #define PID_POS_LIM_MIN_INT -5.0f
 #define PID_POS_LIM_MAX_INT  5.0f
 
-#define SAMPLE_TIME_POS_S 0.001f
+#define SAMPLE_TIME_POS_S 0.002f
 
 using namespace pimoroni;
 
@@ -110,20 +112,17 @@ volatile bool rotary_switch_In_flag;
 volatile bool rotary_switch_Out_flag;
 volatile bool motor_direction;
 volatile uint32_t time_new;
+uint32_t time_hi;
 volatile uint32_t time_old;
 volatile uint32_t time_dif;
 volatile int32_t time_dif_sum;
-volatile int32_t time_dif_sum_buf;
-volatile int32_t delta_time_hw_q;
-volatile int32_t motor_speed_hw_q;
-uint32_t time_hi;
 volatile int32_t time_sample_count = 0;
-volatile int32_t time_sample_count_buf = 0;
 volatile int32_t motor_position = 0;
-volatile int32_t motor_position_buf = 0;
 volatile int32_t motor_position_old = 0;
 int speed_setpoint = 0;
 volatile int32_t delta_position;
+volatile int32_t delta_time_hw_q;
+volatile int32_t motor_speed_hw_q;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
 volatile bool pellet_delivered;
@@ -226,10 +225,11 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             //     motor_position--;
             // }
             // time_new = timer_hw->timelr;
-            // time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it
+            // time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
             // time_dif = time_new - time_old;
-            // time_old = time_new;
+            // time_dif_sum += time_dif;
             // time_sample_count++;
+            // time_old = time_new;
             break;
         case ENC_TWO:
             motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
@@ -248,9 +248,9 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 #endif
         case BEAM_BREAK_PIN:
             pellet_delivered = true;
-            set_pwm_one = 0;    // NB must remove this later after testing.....
+            // set_pwm_one = 0;    // NB must remove this later after testing.....
             gpio_event_string(event_str, events);
-            printf("GPIO %d %s\n", gpio, event_str);
+            printf("Pellet GPIO %d %s\n", gpio, event_str);
             break;
         default:
 
@@ -259,16 +259,28 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 
 }
 
-// Timer Callback for 1ms Control Loop.
+// Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
-    // if (LED_TOGGLE){
-    //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
-    //     LED_TOGGLE = !LED_TOGGLE;
-    // } else {
-    //     gpio_put(GREEN_LED_PIN, GPIO_ON);
-    //     LED_TOGGLE = !LED_TOGGLE;
-    // }
-    // motor_speed = motor_position - motor_position_old;
+    // function to get speed
+    if (motor_position != motor_position_old) {
+        delta_position = (motor_position - motor_position_old) << 16 ;
+        delta_time_hw = hw_divider_divmod_u32(time_dif_sum, time_sample_count);
+        delta_time_hw_q = to_quotient_u32(delta_time_hw);
+        motor_speed_hw = hw_divider_divmod_s32(delta_position,delta_time_hw_q);
+        motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+        // printf("S %d D %d T %d\n", motor_speed_hw_q, delta_position, delta_time_hw_q);
+        motor_position_old = motor_position;
+        time_dif_sum = 0;
+        time_sample_count = 0;
+    } else {
+        time_dif_sum = 0;
+        time_sample_count = 0;
+        motor_speed_hw_q = 0;
+    }
+
+    PIDController_Update(&pid_vel, speed_setpoint, motor_speed_hw_q);
+    // pid_vel.out = speed_setpoint;
+
     return true;
 }
 
@@ -277,15 +289,15 @@ void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    if (speed_setpoint == 0) {
+    if (pid_vel.out == 0) {
         set_pwm_two = 0;
         set_pwm_one = 0;
-    } else if (speed_setpoint > 0) {
-        set_pwm_one = speed_setpoint;
+    } else if (pid_vel.out > 0) {
+        set_pwm_one = pid_vel.out;
         if (set_pwm_one > 4095) set_pwm_one = 4095;
         set_pwm_two = 0;
     } else {
-        set_pwm_two = speed_setpoint*-1;
+        set_pwm_two = pid_vel.out*-1;
         if (set_pwm_two > 4095) set_pwm_two = 4095;
         set_pwm_one = 0;
     }
@@ -406,10 +418,10 @@ int main()
                   tskIDLE_PRIORITY + 1,           // Task Priority
                   &xUpdateScreenHandle );  
 
-    add_repeating_timer_us(-1000, repeating_timer_callback, NULL, &control_loop);
-
     PIDController_Init(&pid_vel);
     PIDController_Init(&pid_pos);
+
+    add_repeating_timer_us(-2000, repeating_timer_callback, NULL, &control_loop);
 
     vTaskStartScheduler();
 
@@ -422,10 +434,14 @@ void vGreenLEDTask( void * pvParameters )
 {
     for( ;; )
     {
-        // gpio_put(GREEN_LED_PIN, GPIO_ON);
-        // vTaskDelay(200);
-        // gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        // vTaskDelay(200);
+        // if (LED_TOGGLE){
+        //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        //     LED_TOGGLE = !LED_TOGGLE;
+        // } else {
+        //     gpio_put(GREEN_LED_PIN, GPIO_ON);
+        //     LED_TOGGLE = !LED_TOGGLE;
+        // }
+        vTaskDelay(1000);
     }
 }
 
@@ -437,18 +453,19 @@ void vApplicationTask( void * pvParameters )
     {
         if (rotary_rotation_flag) {
             if (rotary_direction) {
-                speed_setpoint += 250;
+                speed_setpoint += 50;
             } else {
-                speed_setpoint -= 250;
+                speed_setpoint -= 50;
             }
             rotary_rotation_flag = false;
         }
         if (rotary_switch_In_flag) {
-            speed_setpoint = 4095;
+            speed_setpoint = 700;
             rotary_switch_In_flag = false;
         }
         if (rotary_switch_Out_flag) {
             speed_setpoint = 0;
+            PIDController_Init(&pid_vel);
             rotary_switch_Out_flag = false;
         }
         vTaskDelay(10);
@@ -464,24 +481,16 @@ void vUpdateScreenTask( void * pvParameters )
 
     for( ;; )
     {
-        if (motor_position != motor_position_old) {
-            // delta_position = motor_position - motor_position_old;
-            delta_position = (motor_position - motor_position_old) << 16 ;
-            // delta_position = (motor_position - motor_position_old) * 1000 ;
-            delta_time_hw = hw_divider_divmod_u32(time_dif_sum, time_sample_count);
-            delta_time_hw_q = to_quotient_u32(delta_time_hw);
-            motor_speed_hw = hw_divider_divmod_s32(delta_position,delta_time_hw_q);
-            motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
-            // delta_time_hw_q = time_dif_sum / time_sample_count;
-            // motor_speed_hw_q = delta_position / delta_time_hw_q;
-            // printf("D %d P %d p %d T %d C %d\n", delta_position, motor_position, motor_position_old, time_dif_sum, time_sample_count);
-            // printf("D %d T %d S %d C %d\n", delta_position, to_quotient_u32(delta_time_hw), time_dif_sum, time_sample_count);
-            printf("S %d D %d T %d\n", motor_speed_hw_q, delta_position, delta_time_hw_q);
-            motor_position_old = motor_position;
-            time_dif_sum = 0;
-            time_sample_count = 0;
+        // if (LED_TOGGLE){
+        //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        //     LED_TOGGLE = !LED_TOGGLE;
+        // } else {
+        //     gpio_put(GREEN_LED_PIN, GPIO_ON);
+        //     LED_TOGGLE = !LED_TOGGLE;
+        // }
+        if (motor_speed_hw_q != 0) {
+            printf("Setpoint %d - Speed %d - Error %.1f - Out %.1f\n", speed_setpoint, motor_speed_hw_q, pid_vel.prevError, pid_vel.out);
         }
-            
         vTaskDelay(2);
     }
 }
