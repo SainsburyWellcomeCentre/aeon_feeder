@@ -56,8 +56,8 @@
 #define EDGE_RISE           0x8
 
 /* Velocity Controller parameters */
-#define PID_VEL_KP  2.5f
-#define PID_VEL_KI  1.0f
+#define PID_VEL_KP  0.5f
+#define PID_VEL_KI  2.0f
 #define PID_VEL_KD  0.002f
 
 #define PID_VEL_TAU 0.200f
@@ -225,20 +225,18 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             // The resolution loss should not be a problem in this case.
             motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));    // For some unknown reason, the compiler does not like adding the ! here
             motor_direction = !motor_direction;                             // If you put ! here then it works 100% of the time
-            if (motor_direction){
-                motor_position++;
-            } else{
-                motor_position--;
-            }
             time_new = timer_hw->timelr;
             time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
             time_dif = time_new - time_old;
-            // test
             motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
             motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
-            // ends here
-            // time_dif_sum += time_dif;
-            motor_speed_sum += motor_speed_hw_q;
+            if (motor_direction){
+                motor_position++;
+                motor_speed_sum += motor_speed_hw_q;
+            } else{
+                motor_position--;
+                motor_speed_sum -= motor_speed_hw_q;
+            }
             if (motor_speed_sample_count == MOTOR_SPEED_COUNT){
                 motor_speed = motor_speed_sum;
                 motor_speed_sum = 0;
@@ -249,20 +247,24 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             break;
         case ENC_TWO:
             motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
-            if (motor_direction){
-                motor_position++;
-            } else{
-                motor_position--;
-            }
+            // if (motor_direction){
+            //     motor_position++;
+            // } else{
+            //     motor_position--;
+            // }
             time_new = timer_hw->timelr;
             time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
             time_dif = time_new - time_old;
-            // test
             motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
             motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
-            // ends here
-            // time_dif_sum += time_dif;
-            motor_speed_sum += motor_speed_hw_q;
+            if (motor_direction){
+                motor_position++;
+                motor_speed_sum += motor_speed_hw_q;
+            } else{
+                motor_position--;
+                motor_speed_sum -= motor_speed_hw_q;
+            }
+            // motor_speed_sum += motor_speed_hw_q;
             if (motor_speed_sample_count == MOTOR_SPEED_COUNT){
                 motor_speed = motor_speed_sum;
                 motor_speed_sum = 0;
@@ -289,35 +291,27 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 bool repeating_timer_callback(struct repeating_timer *t) {
     // function to get speed
     if (motor_position != motor_position_old) {
-        // motor_position_buf = motor_position;
-        // time_dif_sum_buf = time_dif_sum;
-        // time_sample_count_buf = time_sample_count;
-        // time_dif_sum = 0;
-        // time_sample_count = 0;
-        // delta_position = (motor_position_buf - motor_position_old) << 16 ; // Shifted to make the division easier - at present we don't need a real speed
-        // delta_time_hw = hw_divider_divmod_u32(time_dif_sum_buf, time_sample_count_buf);
-        // delta_time_hw_q = to_quotient_u32(delta_time_hw);
-        // motor_speed_hw = hw_divider_divmod_s32(delta_position,delta_time_hw_q);
-        // motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
-        // printf("S %d D %d T %d\n", delta_position, time_dif_sum_buf, time_sample_count_buf);
-        // printf("S %d D %d T %d\n", motor_speed_hw_q, delta_position, delta_time_hw_q);
-
-        delta_position = (motor_position - motor_position_old) ;
-        printf("S %d D %d\n", motor_speed, delta_position);
-        // motor_position_old = motor_position_buf;
+        // delta_position = (motor_position - motor_position_old) ;
+        // printf("S %d\n", motor_speed);
         motor_position_old = motor_position;
     } else {
         motor_speed_sum = 0;
         motor_speed_sample_count = 0;
         motor_speed_hw_q = 0;
+        motor_speed = 0;
     }
     // if (speed_setpoint != 0){
     //     PIDController_Update(&pid_vel, speed_setpoint, motor_speed_hw_q);
     // } else {
     //     PIDController_Init(&pid_vel);
     // }
+    if (speed_setpoint != 0){
+        PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
+    } else {
+        PIDController_Init(&pid_vel);
+    }
     
-    pid_vel.out = speed_setpoint;
+    // pid_vel.out = speed_setpoint;
 
     return true;
 }
@@ -526,9 +520,9 @@ void vUpdateScreenTask( void * pvParameters )
         //     gpio_put(GREEN_LED_PIN, GPIO_ON);
         //     LED_TOGGLE = !LED_TOGGLE;
         // }
-        // if (motor_speed_hw_q != 0) {
-        //     printf("Setpoint %d - Speed %d - Error %.1f - Int %.1f - Out %.1f\n", speed_setpoint, motor_speed_hw_q, pid_vel.prevError, pid_vel.integrator, pid_vel.out);
-        // }
+        if (motor_speed != 0) {
+            printf("Setpoint %d - Speed %d - Error %.1f - Int %.1f - Out %.1f\n", speed_setpoint, motor_speed, pid_vel.prevError, pid_vel.integrator, pid_vel.out);
+        }
         vTaskDelay(2);
     }
 }
