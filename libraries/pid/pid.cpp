@@ -31,8 +31,6 @@ float PIDController_Update(PIDController *pid, float setpoint, float measurement
 	* Integral
 	*/
     pid->integrator = pid->integrator + pid->Ki * pid->T * (error + pid->prevError);
-    // pid->integrator = pid->Ki * (pid->integrator + error);
-    // pid->integrator = pid->integrator + 0.5f * pid->Ki * pid->T * error;
 
 	/* Anti-wind-up via integrator clamping */
     if (pid->integrator > pid->limMaxInt) {
@@ -59,7 +57,6 @@ float PIDController_Update(PIDController *pid, float setpoint, float measurement
 	* Compute output and apply limits
 	*/
     pid->out = proportional + pid->integrator + pid->differentiator;
-    // pid->out = proportional + pid->integrator;
 
     if (pid->out > pid->limMax) {
 
