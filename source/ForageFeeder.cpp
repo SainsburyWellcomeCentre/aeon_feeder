@@ -29,6 +29,7 @@
 // #include "FreeSerif24pt7b.h"
 #include "pid.h"
 
+#define BNC_INPUT           6
 #define ROTARY_SW           7
 #define ROTARY_A            8
 #define ROTARY_B            9
@@ -57,6 +58,8 @@
 
 #define TIME_DIF_MAX        1000u
 #define MAX_ROTATION_COUNT  23104u
+
+#define LCD_STRING_BUF_SIZE 20
 
 /* Velocity Controller parameters */
 #define PID_VEL_KP  2.0f
@@ -147,7 +150,8 @@ divmod_result_t motor_speed_hw;
 
 static char event_str[128];
 
-char lcd_message_str[20];
+char lcd_message_str[LCD_STRING_BUF_SIZE];
+char lcd_message_str_send[LCD_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
 void vGreenLEDTask( void * pvParameters );
@@ -172,6 +176,7 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
                         rotary_direction = ROTARY_LEFT;
                         rotary_rotation_flag = true;
                         printf("Rotary Left\n");
+                        sprintf(lcd_message_str, "Rotary Left\n");
                     } else {
                         rotary_int = true;
                     }
@@ -190,6 +195,7 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
                         rotary_direction = ROTARY_RIGHT;
                         rotary_rotation_flag = true;
                         printf("Rotary Right\n");
+                        sprintf(lcd_message_str, "Rotary Right\n");
                     } else {
                         rotary_int = true;
                     }
@@ -206,10 +212,12 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
                 case EDGE_FALL:
                     rotary_switch_In_flag = true;
                     printf("Rotary Switch IN\n");
+                    sprintf(lcd_message_str, "Rotary Switch In\n");
                     break;
                 case EDGE_RISE:
                     rotary_switch_Out_flag = true;
                     printf("Rotary Switch OUT\n");
+                    sprintf(lcd_message_str, "Rotary Switch Out\n");
                     break;
                 default:
 
@@ -218,6 +226,10 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
             
             // gpio_event_string(event_str, events);
             // printf("GPIO %d %s\n", gpio, event_str);
+            break;
+        case BNC_INPUT:
+            printf("BNC Trigger\n");
+            sprintf(lcd_message_str, "BNC Trigger\n");
             break;
         default:
             break;
@@ -383,12 +395,20 @@ static const char *gpio_irq_str[] = {
 
 // SWC Base code - will run on Core 1 - START
 void swc_base() {
-  
+
+    int x = 0;
+    // gpio_init(BNC_INPUT);
+    // gpio_set_dir(BNC_INPUT, GPIO_IN);
+    gpio_pull_up(BNC_INPUT);
+    
     printf("Hello GPIO IRQ\n");
     sprintf(lcd_message_str, "Hello GPIO IRQ");
     gpio_set_irq_enabled_with_callback(ROTARY_SW, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
     gpio_set_irq_enabled_with_callback(ROTARY_A, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
     gpio_set_irq_enabled_with_callback(ROTARY_B, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
+    gpio_set_irq_enabled_with_callback(BNC_INPUT, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
+
+
 
     lcd.init();
     lcd.set_backlight(255);
@@ -396,6 +416,12 @@ void swc_base() {
   while(true) {
     lcd.set_pen(120, 40, 60);
     lcd.clear();
+
+    while(multicore_fifo_rvalid()) {
+        lcd_message_str[x] = multicore_fifo_pop_blocking();
+        x++;
+    }
+    x = 0;
 
 #if SCREEN_TEXT
     lcd.set_pen(255,255,255);
@@ -584,16 +610,27 @@ void gpio_event_string(char *buf, uint32_t events) {
 }
 
 void initialise_feeder(void) {
+
+    int y = 0;
     speed_setpoint = 100;
     while((!pellet_delivered) && (motor_position < MAX_ROTATION_COUNT)){
         vTaskDelay(1);
     }
     if (!pellet_delivered) {
         printf("No Pellets\n");
+        sprintf(lcd_message_str_send, "No Pellets\n");
+        for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
+            multicore_fifo_push_blocking((uintptr_t) lcd_message_str_send[y]);
+        }
+        
         pellet_delivered = false;
     } else {
         motor_brake = true;
         printf("Pellet Delivered\n");
+        sprintf(lcd_message_str_send, "Pellet Delivered\n");
+        for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
+            multicore_fifo_push_blocking((uintptr_t) lcd_message_str_send[y]);
+        }
         pellet_delivered = true;
     }
     speed_setpoint = 0;
