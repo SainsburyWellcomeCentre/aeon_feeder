@@ -55,8 +55,11 @@
 #define EDGE_FALL           0x4
 #define EDGE_RISE           0x8
 
+#define TIME_DIF_MAX        1000u
+#define MAX_ROTATION_COUNT  23104u
+
 /* Velocity Controller parameters */
-#define PID_VEL_KP  0.5f
+#define PID_VEL_KP  2.0f
 #define PID_VEL_KI  2.0f
 #define PID_VEL_KD  0.002f
 
@@ -116,6 +119,9 @@ volatile uint32_t time_new;
 uint32_t time_hi;
 volatile uint32_t time_old;
 volatile uint32_t time_dif;
+volatile uint32_t time_dif_old;
+volatile uint32_t time_dif_count = 0;
+volatile uint32_t time_dif_buf[16];
 volatile int32_t motor_speed_sum;
 // volatile int32_t time_dif_sum_buf;
 volatile int32_t motor_speed_sample_count = 0;
@@ -133,6 +139,8 @@ uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
 volatile bool pellet_delivered;
 volatile bool LED_TOGGLE;
+volatile bool motor_start;
+volatile bool motor_brake;
 
 divmod_result_t delta_time_hw;
 divmod_result_t motor_speed_hw;
@@ -221,57 +229,72 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
     switch(gpio) {
 #if QUAD_ENCODER
         case ENC_ONE:
-            // I'm ignoring this one for now as it has an odd trigger where the time dif is 1us (so not correct)
-            // The resolution loss should not be a problem in this case.
+            time_new = timer_hw->timelr;
+            if(!motor_start){
+                time_old = time_new;
+                motor_start = true;
+            }
+            // time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
+            time_dif = time_new - time_old;
+            if (time_dif > TIME_DIF_MAX) time_dif = time_dif_old;   // to fix errant error working out speed
+            time_dif_old = time_dif;
+            time_old = time_new;
+            // do timing first
             motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));    // For some unknown reason, the compiler does not like adding the ! here
             motor_direction = !motor_direction;                             // If you put ! here then it works 100% of the time
-            time_new = timer_hw->timelr;
-            time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
-            time_dif = time_new - time_old;
-            motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
-            motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+            // motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
+            // motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
             if (motor_direction){
                 motor_position++;
+                motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
+                motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
                 motor_speed_sum += motor_speed_hw_q;
             } else{
                 motor_position--;
-                motor_speed_sum -= motor_speed_hw_q;
+                motor_speed_hw = hw_divider_divmod_s32(-65536,time_dif);
+                motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+                motor_speed_sum += motor_speed_hw_q;
             }
             if (motor_speed_sample_count == MOTOR_SPEED_COUNT){
-                motor_speed = motor_speed_sum;
+                motor_speed = motor_speed_sum>>2;
                 motor_speed_sum = 0;
                 motor_speed_sample_count = 0;
             }
             motor_speed_sample_count++;
-            time_old = time_new;
             break;
         case ENC_TWO:
-            motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
-            // if (motor_direction){
-            //     motor_position++;
-            // } else{
-            //     motor_position--;
-            // }
             time_new = timer_hw->timelr;
-            time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
+            if(!motor_start){
+                time_old = time_new;
+                motor_start = true;
+            }
+            // time_hi = timer_hw->timehr; // reading the lo register latches the hi one - so this will clear it - not sure if required
             time_dif = time_new - time_old;
-            motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
-            motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+            if (time_dif > TIME_DIF_MAX) time_dif = time_dif_old;   // to fix errant error working out speed
+            time_dif_old = time_dif;
+            time_old = time_new;
+            // do timing first
+            motor_direction = ((gpio_get(ENC_ONE))^(gpio_get(ENC_TWO)));
+            // motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
+            // motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
             if (motor_direction){
                 motor_position++;
+                motor_speed_hw = hw_divider_divmod_s32(65536,time_dif);
+                motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
                 motor_speed_sum += motor_speed_hw_q;
             } else{
                 motor_position--;
-                motor_speed_sum -= motor_speed_hw_q;
+                motor_speed_hw = hw_divider_divmod_s32(-65536,time_dif);
+                motor_speed_hw_q = to_quotient_s32(motor_speed_hw);
+                motor_speed_sum += motor_speed_hw_q;
             }
-            // motor_speed_sum += motor_speed_hw_q;
+            motor_speed_sum += motor_speed_hw_q;
             if (motor_speed_sample_count == MOTOR_SPEED_COUNT){
-                motor_speed = motor_speed_sum;
+                motor_speed = motor_speed_sum>>2;
                 motor_speed_sum = 0;
                 motor_speed_sample_count = 0;
             }
             motor_speed_sample_count++;
-            time_old = time_new;
             break;
 #endif
         case BEAM_BREAK_PIN:
@@ -289,8 +312,14 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 
 // Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
+    int i;
     // function to get speed
     if (motor_position != motor_position_old) {
+        // for (i = 1; i <= time_dif_count; i++)
+        // {
+        //     printf("%d C %d T %d\n", time_dif_count, i, time_dif_buf[i]);
+        // }
+        // time_dif_count = 1;
         // delta_position = (motor_position - motor_position_old) ;
         // printf("S %d\n", motor_speed);
         motor_position_old = motor_position;
@@ -299,12 +328,10 @@ bool repeating_timer_callback(struct repeating_timer *t) {
         motor_speed_sample_count = 0;
         motor_speed_hw_q = 0;
         motor_speed = 0;
+        time_old = timer_hw->timelr;    // to remove the accumulation of time between quad encoder steps
+        motor_start = false;
     }
-    // if (speed_setpoint != 0){
-    //     PIDController_Update(&pid_vel, speed_setpoint, motor_speed_hw_q);
-    // } else {
-    //     PIDController_Init(&pid_vel);
-    // }
+    
     if (speed_setpoint != 0){
         PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
     } else {
@@ -321,17 +348,22 @@ void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
 
-    if (pid_vel.out == 0) {
-        set_pwm_two = 0;
-        set_pwm_one = 0;
-    } else if (pid_vel.out > 0) {
-        set_pwm_one = pid_vel.out;
-        if (set_pwm_one > 4095) set_pwm_one = 4095;
-        set_pwm_two = 0;
+    if (motor_brake) {
+        set_pwm_two = 4095;
+        set_pwm_one = 4095;
     } else {
-        set_pwm_two = pid_vel.out*-1;
-        if (set_pwm_two > 4095) set_pwm_two = 4095;
-        set_pwm_one = 0;
+        if (pid_vel.out == 0) {
+            set_pwm_two = 0;
+            set_pwm_one = 0;
+        } else if (pid_vel.out > 0) {
+            set_pwm_one = pid_vel.out;
+            if (set_pwm_one > 4095) set_pwm_one = 4095;
+            set_pwm_two = 0;
+        } else {
+            set_pwm_two = pid_vel.out*-1;
+            if (set_pwm_two > 4095) set_pwm_two = 4095;
+            set_pwm_one = 0;
+        }
     }
 
     pwm_set_gpio_level(PWM_IN_ONE, set_pwm_one);
@@ -479,11 +511,12 @@ void vGreenLEDTask( void * pvParameters )
 
 void vApplicationTask( void * pvParameters )
 {
-    // initialise_feeder();     // commented out while doing the control loops
+    initialise_feeder();     // commented out while doing the control loops
 
     for( ;; )
     {
         if (rotary_rotation_flag) {
+            motor_brake = false;
             if (rotary_direction) {
                 speed_setpoint += 50;
             } else {
@@ -492,12 +525,14 @@ void vApplicationTask( void * pvParameters )
             rotary_rotation_flag = false;
         }
         if (rotary_switch_In_flag) {
-            speed_setpoint = 700;
+            motor_brake = false;
+            speed_setpoint = 400;
             rotary_switch_In_flag = false;
         }
         if (rotary_switch_Out_flag) {
             speed_setpoint = 0;
-            // PIDController_Init(&pid_vel);
+            motor_brake = true;
+            PIDController_Init(&pid_vel);
             rotary_switch_Out_flag = false;
         }
         vTaskDelay(10);
@@ -520,9 +555,9 @@ void vUpdateScreenTask( void * pvParameters )
         //     gpio_put(GREEN_LED_PIN, GPIO_ON);
         //     LED_TOGGLE = !LED_TOGGLE;
         // }
-        if (motor_speed != 0) {
-            printf("Setpoint %d - Speed %d - Error %.1f - Int %.1f - Out %.1f\n", speed_setpoint, motor_speed, pid_vel.prevError, pid_vel.integrator, pid_vel.out);
-        }
+        // if (motor_speed != 0) {
+        //     printf("Setpoint %d - Speed %d - Error %.1f - Int %.1f - Out %.1f\n", speed_setpoint, motor_speed, pid_vel.prevError, pid_vel.integrator, pid_vel.out);
+        // }
         vTaskDelay(2);
     }
 }
@@ -549,11 +584,18 @@ void gpio_event_string(char *buf, uint32_t events) {
 }
 
 void initialise_feeder(void) {
-    speed_setpoint = 150;
-    while(!pellet_delivered){
+    speed_setpoint = 100;
+    while((!pellet_delivered) && (motor_position < MAX_ROTATION_COUNT)){
         vTaskDelay(1);
     }
+    if (!pellet_delivered) {
+        printf("No Pellets\n");
+        pellet_delivered = false;
+    } else {
+        motor_brake = true;
+        printf("Pellet Delivered\n");
+        pellet_delivered = true;
+    }
     speed_setpoint = 0;
-    pellet_delivered = false;
 
 }
