@@ -7,6 +7,7 @@
 #define SCREEN_TEXT         1
 #define PWM_ENABLE          1
 #define QUAD_ENCODER        1
+#define TESTING_MOTOR       0
 
 // #include <stdio.h>
 #include "pico/stdlib.h"
@@ -57,9 +58,24 @@
 #define EDGE_RISE           0x8
 
 #define TIME_DIF_MAX        1000u
-#define MAX_ROTATION_COUNT  23104u
+#define MAX_ROTATION_TOTAL  23104u
+#define MAX_ROTATION_HOLE   1924u   // basically MAX_ROTATION_TOTAL / 12 (number of holes)
+#define ROTATION_PRE_LOAD   1800u   // distance to travel around before stopping from the last hole to pre load a pellet
+#define SPEED_PRE_LOAD      400u
+#define SPEED_DELIVER       100u
 
 #define LCD_STRING_BUF_SIZE 20
+
+#define FEEDER_INIT         0x01
+#define FEEDER_READY        0x02
+#define FEEDER_PRE_LOAD     0x04
+#define FEEDER_DELIVER      0x08
+#define FEEDER_EMPTY        0x10
+#define FEEDER_ERROR        0x20
+
+// define messages from user interface to controller
+#define BNC_TRIGGERED       0x01
+
 
 /* Velocity Controller parameters */
 #define PID_VEL_KP  2.0f
@@ -118,6 +134,7 @@ volatile bool rotary_rotation_flag;
 volatile bool rotary_switch_In_flag;
 volatile bool rotary_switch_Out_flag;
 volatile bool motor_direction;
+volatile bool message_flag;
 volatile uint32_t time_new;
 uint32_t time_hi;
 volatile uint32_t time_old;
@@ -140,10 +157,15 @@ volatile int32_t motor_speed_hw_q;
 volatile int32_t motor_speed;
 uint16_t set_pwm_one = 0;
 uint16_t set_pwm_two = 0;
+volatile int32_t pellets_delivered;
 volatile bool pellet_delivered;
 volatile bool LED_TOGGLE;
 volatile bool motor_start;
 volatile bool motor_brake;
+volatile bool bnc_triggered;
+volatile uint32_t feeder_state;
+volatile uint32_t user_state;
+volatile uint32_t command_state;    // the command state gets its value from the user state
 
 divmod_result_t delta_time_hw;
 divmod_result_t motor_speed_hw;
@@ -160,6 +182,10 @@ void vUpdateScreenTask( void * pvParameters );
 
 void gpio_event_string(char *buf, uint32_t events);
 void initialise_feeder(void);
+void pre_load_pellet(void);
+void deliver_pellet(void);
+void feeder_ready(void);
+
 
 // Interupt Callback Routines - START
 void gpio_callback_core_1(uint gpio, uint32_t events) {
@@ -228,8 +254,11 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
             // printf("GPIO %d %s\n", gpio, event_str);
             break;
         case BNC_INPUT:
-            printf("BNC Trigger\n");
+            // printf("BNC Trigger\n");
             sprintf(lcd_message_str, "BNC Trigger\n");
+            bnc_triggered = true;
+            // user_state = BNC_TRIGGERED;
+            // multicore_fifo_push_blocking((uintptr_t) &user_state);
             break;
         default:
             break;
@@ -537,10 +566,33 @@ void vGreenLEDTask( void * pvParameters )
 
 void vApplicationTask( void * pvParameters )
 {
+    feeder_state = FEEDER_INIT;
     initialise_feeder();     // commented out while doing the control loops
 
     for( ;; )
     {
+        switch(feeder_state) {
+            case FEEDER_PRE_LOAD:
+                pre_load_pellet();
+
+                break;
+            case FEEDER_READY:
+                feeder_ready();
+                break;
+            case FEEDER_DELIVER:
+                deliver_pellet();
+                break;
+            case FEEDER_EMPTY:
+
+                break;
+            case FEEDER_ERROR:
+
+                break;
+            default:
+                break;
+        }
+
+#if TESTING_MOTOR
         if (rotary_rotation_flag) {
             motor_brake = false;
             if (rotary_direction) {
@@ -561,31 +613,98 @@ void vApplicationTask( void * pvParameters )
             PIDController_Init(&pid_vel);
             rotary_switch_Out_flag = false;
         }
+#endif
         vTaskDelay(10);
-        
-        // gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        // vTaskDelay(1);
     }
 }
 
 void vUpdateScreenTask( void * pvParameters )
 {
-    
-
+    int y;
     for( ;; )
     {
-        // if (LED_TOGGLE){
-        //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        //     LED_TOGGLE = !LED_TOGGLE;
-        // } else {
-        //     gpio_put(GREEN_LED_PIN, GPIO_ON);
-        //     LED_TOGGLE = !LED_TOGGLE;
-        // }
-        // if (motor_speed != 0) {
-        //     printf("Setpoint %d - Speed %d - Error %.1f - Int %.1f - Out %.1f\n", speed_setpoint, motor_speed, pid_vel.prevError, pid_vel.integrator, pid_vel.out);
-        // }
-        vTaskDelay(2);
+        if (message_flag) {
+            for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
+                multicore_fifo_push_blocking((uintptr_t) lcd_message_str_send[y]);
+            }
+            message_flag = false;
+        }
+        vTaskDelay(20);
     }
+}
+
+
+void initialise_feeder(void) {
+    motor_brake = false;
+    speed_setpoint = 100;
+    while((!pellet_delivered) && (motor_position < MAX_ROTATION_TOTAL)){
+        vTaskDelay(1);
+    }
+    if (!pellet_delivered) {
+        feeder_state = FEEDER_EMPTY;
+        printf("No Pellets\n");
+        sprintf(lcd_message_str_send, "No Pellets\n");
+        message_flag = true;
+        pellet_delivered = false;
+    } else {
+        motor_brake = true;
+        motor_position = 0;
+        printf("Pellet Delivered\n");
+        sprintf(lcd_message_str_send, "Initialised\n");
+        message_flag = true;
+        pellet_delivered = true;
+        feeder_state = FEEDER_PRE_LOAD;
+    }
+    speed_setpoint = 0;
+}
+
+void pre_load_pellet(void) {
+    motor_brake = false;
+    speed_setpoint = SPEED_PRE_LOAD;
+    while(motor_position < ROTATION_PRE_LOAD){
+        vTaskDelay(1);
+    }
+    motor_brake = true;
+    speed_setpoint = 0;
+    sprintf(lcd_message_str_send, "Pellet Loaded\n");
+    message_flag = true;
+    feeder_state = FEEDER_READY;
+}
+
+void feeder_ready(void) {
+    // command_state = multicore_fifo_pop_blocking();
+
+    // if (user_state == BNC_TRIGGERED) {
+    if (bnc_triggered) {
+        sprintf(lcd_message_str_send, "Delivery Triggered\n");
+        message_flag = true;
+        feeder_state = FEEDER_DELIVER;
+        bnc_triggered = false;
+    }
+}
+
+void deliver_pellet(void) {
+    motor_brake = false;
+    speed_setpoint = SPEED_DELIVER;
+    while((!pellet_delivered) && (motor_position < MAX_ROTATION_HOLE)){
+        vTaskDelay(1);
+    }
+    if (!pellet_delivered) {
+        feeder_state = FEEDER_EMPTY;
+        printf("No Pellets\n");
+        sprintf(lcd_message_str_send, "No Pellets\n");
+        message_flag = true;
+        pellet_delivered = false;
+    } else {
+        motor_brake = true;
+        motor_position = 0;
+        printf("Pellet Delivered\n");
+        sprintf(lcd_message_str_send, "Pellet Delivered\n");
+        message_flag = true;
+        pellet_delivered = true;
+        feeder_state = FEEDER_PRE_LOAD;
+    }
+    speed_setpoint = 0;
 }
 
 void gpio_event_string(char *buf, uint32_t events) {
@@ -607,32 +726,4 @@ void gpio_event_string(char *buf, uint32_t events) {
         }
     }
     *buf++ = '\0';
-}
-
-void initialise_feeder(void) {
-
-    int y = 0;
-    speed_setpoint = 100;
-    while((!pellet_delivered) && (motor_position < MAX_ROTATION_COUNT)){
-        vTaskDelay(1);
-    }
-    if (!pellet_delivered) {
-        printf("No Pellets\n");
-        sprintf(lcd_message_str_send, "No Pellets\n");
-        for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
-            multicore_fifo_push_blocking((uintptr_t) lcd_message_str_send[y]);
-        }
-        
-        pellet_delivered = false;
-    } else {
-        motor_brake = true;
-        printf("Pellet Delivered\n");
-        sprintf(lcd_message_str_send, "Pellet Delivered\n");
-        for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
-            multicore_fifo_push_blocking((uintptr_t) lcd_message_str_send[y]);
-        }
-        pellet_delivered = true;
-    }
-    speed_setpoint = 0;
-
 }
