@@ -614,7 +614,7 @@ void vApplicationTask( void * pvParameters )
             rotary_switch_Out_flag = false;
         }
 #endif
-        vTaskDelay(10);
+        // vTaskDelay(10);
     }
 }
 
@@ -642,7 +642,7 @@ void initialise_feeder(void) {
     }
     if (!pellet_delivered) {
         feeder_state = FEEDER_EMPTY;
-        printf("No Pellets\n");
+        // printf("No Pellets\n");
         sprintf(lcd_message_str_send, "No Pellets\n");
         message_flag = true;
         pellet_delivered = false;
@@ -650,13 +650,14 @@ void initialise_feeder(void) {
         motor_brake = true;
         motor_position = 0;
         motor_position_old = 0;
-        printf("Pellet Delivered\n");
+        // printf("Pellet Delivered\n");
         sprintf(lcd_message_str_send, "Initialised\n");
         message_flag = true;
         pellet_delivered = false;
         feeder_state = FEEDER_PRE_LOAD;
     }
     speed_setpoint = 0;
+    vTaskDelay(2000);
 }
 
 void pre_load_pellet(void) {
@@ -694,7 +695,7 @@ void deliver_pellet(void) {
     }
     if (!pellet_delivered) {
         feeder_state = FEEDER_EMPTY;
-        printf("No Pellets\n");
+        // printf("No Pellets\n");
         sprintf(lcd_message_str_send, "No Pellets\n");
         message_flag = true;
         pellet_delivered = false;
@@ -702,7 +703,7 @@ void deliver_pellet(void) {
         motor_brake = true;
         motor_position = 0;
         motor_position_old = 0;
-        printf("Pellet Delivered\n");
+        // printf("Pellet Delivered\n");
         sprintf(lcd_message_str_send, "Pellet Delivered\n");
         message_flag = true;
         pellet_delivered = false;
