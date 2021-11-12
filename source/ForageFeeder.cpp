@@ -69,7 +69,7 @@
 #define SPEED_DELIVER       100u
 
 #define LCD_STRING_BUF_SIZE     20
-#define UART_STRING_BUF_SIZE    20
+#define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
 
@@ -86,8 +86,8 @@
 ////////////////////////////////////////
 // Velocity Controller parameters
 ////////////////////////////////////////
-#define PID_VEL_KP  1.0f
-#define PID_VEL_KI  2.0f
+#define PID_VEL_KP  10.0f
+#define PID_VEL_KI  20.0f
 #define PID_VEL_KD  0.002f
 
 #define PID_VEL_TAU 0.200f
@@ -177,9 +177,25 @@ public:
         return rotation;
     }
 
+    // set the current rotation to a specific value
+    void clear_time_dif(void)
+    {
+        time_dif = 0;
+    }
+
+    // get the current time difference
+    int get_time_dif(void)
+    {
+        return time_dif;
+    }
+
 private:
     static void pio_irq_handler()
     {
+        uint32_t lo = timer_hw->timelr;
+        uint32_t hi = timer_hw->timehr;
+        time = ((uint64_t) hi << 32u) | lo;
+        time_dif += (time - time_old);
         // test if irq 0 was raised
         if (pio0_hw->irq & 1)
         {
@@ -191,6 +207,7 @@ private:
             rotation = rotation + 1;
         }
         // clear both interrupts
+        time_old = time;
         pio0_hw->irq = 3;
     }
 
@@ -200,10 +217,18 @@ private:
     uint sm;
     // the current location of rotation
     static int rotation;
+    static uint64_t time;                          // To get current time from low level hardware clock
+    static uint64_t time_old;                      // to get old time from hardware clock to calc dif
+    static uint64_t time_dif;                      // difference in time between encoder pulses
+
 };
 
 // Initialize static member of class Rotary_encoder
 int RotaryEncoder::rotation = 0;
+uint64_t RotaryEncoder::time = 0;
+uint64_t RotaryEncoder::time_old = 0;
+uint64_t RotaryEncoder::time_dif = 0;
+
 RotaryEncoder quad_encoder(ENC_ONE);
 
 PIDController pid_vel = { PID_VEL_KP, PID_VEL_KI, PID_VEL_KD,
@@ -226,6 +251,7 @@ volatile int32_t motor_speed = 0;           // Actual measued speed from the mot
 volatile int32_t speed_setpoint = 0;   // Motor Speed setpoint
 uint16_t set_pwm_one = 0;               // PWM values for writing to Timer
 uint16_t set_pwm_two = 0;               // PWM values for writing to Timer
+
 volatile bool pellet_delivered;         // Flag set when pellet gets delivered
 volatile bool lcd_message_flag;
 volatile bool uart_message_flag;
@@ -233,8 +259,8 @@ volatile bool motor_brake;
 volatile bool bnc_triggered;
 volatile uint32_t feeder_state;
 
-// divmod_result_t delta_time_hw;
-// divmod_result_t motor_speed_hw;
+divmod_result_t delta_time_hw;
+divmod_result_t motor_speed_hw;
 
 static char event_str[128];
 
@@ -304,13 +330,35 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 // Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
     
-    // if (speed_setpoint != 0){
-    //     PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
-    // } else {
-    //     PIDController_Init(&pid_vel);
-    // }
+    uint32_t r = 0;
+    static uint32_t r_ = 0;
+    static uint32_t r_d;
+    static uint64_t t_d;
+
+    r = quad_encoder.get_rotation();
+    r_d = r - r_;
+    r_d = r_d<<16;
+
+    if (r != r_) {
+        t_d = quad_encoder.get_time_dif();
+        quad_encoder.clear_time_dif();
+        // t_d = t_d>>12;
+        motor_speed_hw = hw_divider_divmod_s32(r_d,t_d);
+        motor_speed = to_quotient_s32(motor_speed_hw);
+        #if UART_DEBUG
+        sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", r, motor_speed, speed_setpoint);
+        uart_message_flag = true;
+        #endif
+    }
+    r_ = r;
     
-    pid_vel.out = speed_setpoint;
+    if (speed_setpoint != 0){
+        PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
+    } else {
+        PIDController_Init(&pid_vel);
+    }
+    
+    // pid_vel.out = speed_setpoint;
 
     return true;
 }
@@ -491,8 +539,7 @@ void vApplicationTask( void * pvParameters )
 {
     uint32_t x = 0;
     bool status;
-    uint32_t r = 0;
-    uint32_t r_ = 0;
+
     // feeder_state = FEEDER_INIT;
     // initialise_feeder();     // commented out while doing the control loops
 
@@ -523,13 +570,6 @@ void vApplicationTask( void * pvParameters )
         // uart_message_flag = true;
         // x++;
 
-        r = quad_encoder.get_rotation();
-        if (r != r_) {
-            sprintf(uart_message_str, "rotation=%d\n", r);
-            uart_message_flag = true;
-        }
-        r_ = r;
-
         status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
 
         // x = multicore_fifo_pop_blocking();
@@ -538,17 +578,17 @@ void vApplicationTask( void * pvParameters )
                 case pico_display.A:
                     sprintf(uart_message_str, "Button A Pressed\n");
                     uart_message_flag = true;
-                    speed_setpoint = 1024;
+                    speed_setpoint += 25;
                     break;
                 case pico_display.B:
                     sprintf(uart_message_str, "Button B Pressed\n");
                     uart_message_flag = true;
-                    speed_setpoint = 2048;
+                    speed_setpoint -= 25;
                     break;
                 case pico_display.X:
                     sprintf(uart_message_str, "Button X Pressed\n");
                     uart_message_flag = true;
-                    speed_setpoint = -2048;
+                    speed_setpoint = 250;
                     break;
                 case pico_display.Y:
                     sprintf(uart_message_str, "Button Y Pressed\n");
@@ -560,7 +600,7 @@ void vApplicationTask( void * pvParameters )
                 break;
             }
         }
-        vTaskDelay(10);
+        vTaskDelay(100);
     }
 }
 
