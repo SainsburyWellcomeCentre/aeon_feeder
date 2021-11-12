@@ -5,6 +5,7 @@
 // #include <stdio.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
+#include "hardware/pio.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 #include "hardware/irq.h"
@@ -18,6 +19,7 @@
 #include "gfxfont.h"
 #include "FreeSans9pt7b.h"
 #include "pid.h"
+#include "pio_quad_encoder.pio.h"
 
 ////////////////////////////////////////
 // Define Code Switches
@@ -27,19 +29,26 @@
 ////////////////////////////////////////
 // Define Hardware Pins
 ////////////////////////////////////////
-// #define BNC_INPUT           6
+#define BNC_INPUT           11
 // #define ROTARY_SW           7
 // #define ROTARY_A            8
 // #define ROTARY_B            9
-// #define ROTARY_RIGHT        1
-// #define ROTARY_LEFT         0
-// #define PWM_IN_ONE          10
-// #define PWM_IN_TWO          11
-// #define PWM_EN              14
-// #define ENC_ONE             12
-// #define ENC_TWO             13
-// #define BEAM_BREAK_PIN      15
+#define PWM_OUT_ONE         2
+#define PWM_OUT_TWO         3
+#define PWM_EN              4
+#define ENC_ONE             9
+#define ENC_TWO             10
+#define BEAM_BREAK_PIN      5
 // #define GREEN_LED_PIN       25
+
+    // From Pi Pico Display Pack
+    // const uint8_t LED_R = 6;
+    // const uint8_t LED_G = 7;
+    // const uint8_t LED_B = 8;
+    // static const uint8_t A = 12;
+    // static const uint8_t B = 13;
+    // static const uint8_t X = 14;
+    // static const uint8_t Y = 15;
 
 ////////////////////////////////////////
 // Define SET Software Values
@@ -115,6 +124,87 @@ using namespace pimoroni;
 
 uint16_t buffer[PicoDisplay::WIDTH * PicoDisplay::HEIGHT];
 PicoDisplay pico_display(buffer);
+
+// class to read the rotation of the rotary encoder
+class RotaryEncoder
+{
+public:
+    // constructor
+    // rotary_encoder_A is the pin for the A of the rotary encoder.
+    // The B of the rotary encoder has to be connected to the next GPIO.
+    RotaryEncoder(uint rotary_encoder_A)
+    {
+        uint8_t rotary_encoder_B = rotary_encoder_A + 1;
+        // pio 0 is used
+        PIO pio = pio0;
+        // state machine 0
+        uint8_t sm = 0;
+        // configure the used pins as input with pull up
+        pio_gpio_init(pio, rotary_encoder_A);
+        gpio_set_pulls(rotary_encoder_A, true, false);
+        pio_gpio_init(pio, rotary_encoder_B);
+        gpio_set_pulls(rotary_encoder_B, true, false);
+        // load the pio program into the pio memory
+        uint offset = pio_add_program(pio, &pio_rotary_encoder_program);
+        // make a sm config
+        pio_sm_config c = pio_rotary_encoder_program_get_default_config(offset);
+        // set the 'in' pins
+        sm_config_set_in_pins(&c, rotary_encoder_A);
+        // set shift to left: bits shifted by 'in' enter at the least
+        // significant bit (LSB), no autopush
+        sm_config_set_in_shift(&c, false, false, 0);
+        // set the IRQ handler
+        irq_set_exclusive_handler(PIO0_IRQ_0, pio_irq_handler);
+        // enable the IRQ
+        irq_set_enabled(PIO0_IRQ_0, true);
+        pio0_hw->inte0 = PIO_IRQ0_INTE_SM0_BITS | PIO_IRQ0_INTE_SM1_BITS;
+        // init the sm.
+        // Note: the program starts after the jump table -> initial_pc = 16
+        pio_sm_init(pio, sm, 16, &c);
+        // enable the sm
+        pio_sm_set_enabled(pio, sm, true);
+    }
+
+    // set the current rotation to a specific value
+    void set_rotation(int _rotation)
+    {
+        rotation = _rotation;
+    }
+
+    // get the current rotation
+    int get_rotation(void)
+    {
+        return rotation;
+    }
+
+private:
+    static void pio_irq_handler()
+    {
+        // test if irq 0 was raised
+        if (pio0_hw->irq & 1)
+        {
+            rotation = rotation - 1;
+        }
+        // test if irq 1 was raised
+        if (pio0_hw->irq & 2)
+        {
+            rotation = rotation + 1;
+        }
+        // clear both interrupts
+        pio0_hw->irq = 3;
+    }
+
+    // the pio instance
+    PIO pio;
+    // the state machine
+    uint sm;
+    // the current location of rotation
+    static int rotation;
+};
+
+// Initialize static member of class Rotary_encoder
+int RotaryEncoder::rotation = 0;
+RotaryEncoder quad_encoder(ENC_ONE);
 
 PIDController pid_vel = { PID_VEL_KP, PID_VEL_KI, PID_VEL_KD,
                         PID_VEL_TAU,
@@ -214,42 +304,42 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 // Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
     
-    if (speed_setpoint != 0){
-        PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
-    } else {
-        PIDController_Init(&pid_vel);
-    }
+    // if (speed_setpoint != 0){
+    //     PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
+    // } else {
+    //     PIDController_Init(&pid_vel);
+    // }
     
-    // pid_vel.out = speed_setpoint;
+    pid_vel.out = speed_setpoint;
 
     return true;
 }
 
-// void on_pwm_wrap() {
+void on_pwm_wrap() {
 
-//     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_IN_ONE));
+    pwm_clear_irq(pwm_gpio_to_slice_num(PWM_OUT_ONE));
 
-//     if (motor_brake) {
-//         set_pwm_two = 4095;
-//         set_pwm_one = 4095;
-//     } else {
-//         if (pid_vel.out == 0) {
-//             set_pwm_two = 0;
-//             set_pwm_one = 0;
-//         } else if (pid_vel.out > 0) {
-//             set_pwm_one = pid_vel.out;
-//             if (set_pwm_one > 4095) set_pwm_one = 4095;
-//             set_pwm_two = 0;
-//         } else {
-//             set_pwm_two = pid_vel.out*-1;
-//             if (set_pwm_two > 4095) set_pwm_two = 4095;
-//             set_pwm_one = 0;
-//         }
-//     }
+    if (motor_brake) {
+        set_pwm_two = 4095;
+        set_pwm_one = 4095;
+    } else {
+        if (pid_vel.out == 0) {
+            set_pwm_two = 0;
+            set_pwm_one = 0;
+        } else if (pid_vel.out > 0) {
+            set_pwm_one = pid_vel.out;
+            if (set_pwm_one > 4095) set_pwm_one = 4095;
+            set_pwm_two = 0;
+        } else {
+            set_pwm_two = pid_vel.out*-1;
+            if (set_pwm_two > 4095) set_pwm_two = 4095;
+            set_pwm_one = 0;
+        }
+    }
 
-//     pwm_set_gpio_level(PWM_IN_ONE, set_pwm_one);
-//     pwm_set_gpio_level(PWM_IN_TWO, set_pwm_two);
-// }
+    pwm_set_gpio_level(PWM_OUT_ONE, set_pwm_one);
+    pwm_set_gpio_level(PWM_OUT_TWO, set_pwm_two);
+}
 
 
 // Interupt Callback Routines - END
@@ -305,6 +395,8 @@ int main()
     multicore_launch_core1(swc_base);
     stdio_init_all();
 
+    quad_encoder.set_rotation(0);
+
     sprintf(uart_message_str, "Hello from Core 0\n");
     uart_message_flag = true;
 
@@ -314,24 +406,27 @@ int main()
     // gpio_init(GREEN_LED_PIN);
     // gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
 
-    // gpio_init(PWM_EN);
-    // gpio_set_dir(PWM_EN, GPIO_OUT);
+    gpio_init(PWM_EN);
+    gpio_set_dir(PWM_EN, GPIO_OUT);
 
-    // gpio_set_function(PWM_IN_ONE, GPIO_FUNC_PWM);
-    // gpio_set_function(PWM_IN_TWO, GPIO_FUNC_PWM);
+    gpio_set_function(PWM_OUT_ONE, GPIO_FUNC_PWM);
+    gpio_set_function(PWM_OUT_TWO, GPIO_FUNC_PWM);
 
-    // uint slice_num = pwm_gpio_to_slice_num(PWM_IN_ONE); // slice_num for both PWM_IN_ONE and PWM_IN_TWO = 5
-    
-    // pwm_clear_irq(slice_num);
-    // pwm_set_irq_enabled(slice_num, true);
-    // irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);
-    // irq_set_enabled(PWM_IRQ_WRAP, true);
+    uint slice_num = pwm_gpio_to_slice_num(PWM_OUT_ONE); // slice_num for both PWM_OUT_ONE and PWM_OUT_TWO = 5
+    // sprintf(uart_message_str, "Slice Number  1%d\n", slice_num);
+    // uart_message_flag = true;
 
-    // pwm_config config = pwm_get_default_config();
-    // pwm_config_set_wrap(&config, 4096);
-    // pwm_init(slice_num, &config, true);
+    pwm_clear_irq(slice_num);
+    pwm_set_irq_enabled(slice_num, true);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);
+    irq_set_enabled(PWM_IRQ_WRAP, true);
 
-    // gpio_put(PWM_EN, GPIO_ON);
+    pwm_config config = pwm_get_default_config();
+    pwm_config_set_wrap(&config, 4096);
+    pwm_init(slice_num, &config, true);
+
+
+    gpio_put(PWM_EN, GPIO_ON);
 
     BaseType_t status;
 #if UART_DEBUG
@@ -396,6 +491,8 @@ void vApplicationTask( void * pvParameters )
 {
     uint32_t x = 0;
     bool status;
+    uint32_t r = 0;
+    uint32_t r_ = 0;
     // feeder_state = FEEDER_INIT;
     // initialise_feeder();     // commented out while doing the control loops
 
@@ -426,6 +523,13 @@ void vApplicationTask( void * pvParameters )
         // uart_message_flag = true;
         // x++;
 
+        r = quad_encoder.get_rotation();
+        if (r != r_) {
+            sprintf(uart_message_str, "rotation=%d\n", r);
+            uart_message_flag = true;
+        }
+        r_ = r;
+
         status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
 
         // x = multicore_fifo_pop_blocking();
@@ -434,18 +538,22 @@ void vApplicationTask( void * pvParameters )
                 case pico_display.A:
                     sprintf(uart_message_str, "Button A Pressed\n");
                     uart_message_flag = true;
+                    speed_setpoint = 1024;
                     break;
                 case pico_display.B:
                     sprintf(uart_message_str, "Button B Pressed\n");
                     uart_message_flag = true;
+                    speed_setpoint = 2048;
                     break;
                 case pico_display.X:
                     sprintf(uart_message_str, "Button X Pressed\n");
                     uart_message_flag = true;
+                    speed_setpoint = -2048;
                     break;
                 case pico_display.Y:
                     sprintf(uart_message_str, "Button Y Pressed\n");
                     uart_message_flag = true;
+                    speed_setpoint = 0;
                     break;
                 default:
 

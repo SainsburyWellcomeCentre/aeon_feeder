@@ -5,6 +5,8 @@ add_executable(
   ForageFeeder.cpp
 )
 
+pico_generate_pio_header(${OUTPUT_NAME} ${CMAKE_CURRENT_LIST_DIR}/pio_quad_encoder.pio)
+
 FILE(GLOB FreeRTOS_src ../freeRTOS/*.c)
 
 add_library( FreeRTOS STATIC
@@ -26,6 +28,7 @@ target_link_libraries(${OUTPUT_NAME}
   pico_display
   pico_stdlib
   pico_multicore
+  hardware_pio
   hardware_pwm
   pid
   )
