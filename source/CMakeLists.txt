@@ -23,7 +23,7 @@ target_include_directories(FreeRTOS PUBLIC
 # Pull in pico libraries that we need
 target_link_libraries(${OUTPUT_NAME}
   FreeRTOS
-  breakout_colourlcd240x240
+  pico_display
   pico_stdlib
   pico_multicore
   hardware_pwm
