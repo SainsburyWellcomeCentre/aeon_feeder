@@ -246,11 +246,14 @@ PIDController pid_pos = { PID_POS_KP, PID_POS_KI, PID_POS_KD,
 struct repeating_timer control_loop;
 
 volatile int32_t motor_position = 0;
+volatile int32_t motor_position_buf;
 volatile int32_t motor_position_old = 0;
 volatile int32_t motor_speed = 0;           // Actual measued speed from the motor
+volatile int32_t motor_speed_buf; 
 volatile int32_t speed_setpoint = 0;   // Motor Speed setpoint
 uint16_t set_pwm_one = 0;               // PWM values for writing to Timer
 uint16_t set_pwm_two = 0;               // PWM values for writing to Timer
+volatile bool motor_moving;             // Flag to update screens etc.
 
 volatile bool pellet_delivered;         // Flag set when pellet gets delivered
 volatile bool lcd_message_flag;
@@ -330,31 +333,35 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 // Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
     
-    uint32_t r = 0;
-    static uint32_t r_ = 0;
-    static uint32_t r_d;
-    static uint64_t t_d;
+    // uint32_t r = 0;                             // Latest position reading
+    static uint32_t r_d;                        // Change in position
+    static uint64_t t_d;                        // Change in time
 
-    r = quad_encoder.get_rotation();
-    r_d = r - r_;
-    r_d = r_d<<16;
+    motor_position = quad_encoder.get_rotation();
+    r_d = motor_position - motor_position_old;
+    r_d = r_d<<16;                              // shifting the quad encoder step counts to facilitate the division without floating point calcs
 
-    if (r != r_) {
+    if (motor_position != motor_position_old) {
         t_d = quad_encoder.get_time_dif();
         quad_encoder.clear_time_dif();
-        // t_d = t_d>>12;
-        motor_speed_hw = hw_divider_divmod_s32(r_d,t_d);
-        motor_speed = to_quotient_s32(motor_speed_hw);
+        motor_speed_hw = hw_divider_divmod_s32(r_d,t_d);        // Hardware division
+        motor_speed = to_quotient_s32(motor_speed_hw);          // Hardware division
         #if UART_DEBUG
-        sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", r, motor_speed, speed_setpoint);
-        uart_message_flag = true;
+        // sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", r, motor_speed, speed_setpoint);
+        // uart_message_flag = true;
         #endif
+        motor_moving = true;
+    } else {
+        motor_moving = false;
     }
-    r_ = r;
+
+    motor_position_old = motor_position;
     
-    if (speed_setpoint != 0){
+    if (speed_setpoint != 0){      
+        motor_brake = false;
         PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
     } else {
+        motor_brake = true;
         PIDController_Init(&pid_vel);
     }
     
@@ -389,9 +396,7 @@ void on_pwm_wrap() {
     pwm_set_gpio_level(PWM_OUT_TWO, set_pwm_two);
 }
 
-
 // Interupt Callback Routines - END
-
 
 
 // SWC Base code - will run on Core 1 - START
@@ -600,6 +605,20 @@ void vApplicationTask( void * pvParameters )
                 break;
             }
         }
+
+        if (motor_moving) {   
+            motor_position_buf = motor_position;
+            motor_speed_buf = motor_speed;
+
+            sprintf(lcd_message_str, "Position=%d", motor_position_buf);
+            lcd_message_flag = true;
+
+            #if UART_DEBUG
+            sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", motor_position_buf, motor_speed_buf, speed_setpoint);
+            uart_message_flag = true;
+            #endif
+        }
+
         vTaskDelay(100);
     }
 }
