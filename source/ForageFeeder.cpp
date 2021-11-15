@@ -63,8 +63,8 @@
 
 #define TIME_DIF_MAX        1000u
 #define MAX_ROTATION_TOTAL  23104u
-#define MAX_ROTATION_HOLE   1924u   // basically MAX_ROTATION_TOTAL / 12 (number of holes)
-#define ROTATION_PRE_LOAD   1700u   // distance to travel around before stopping from the last hole to pre load a pellet
+#define MAX_ROTATION_HOLE   1925u   // basically MAX_ROTATION_TOTAL / 12 (number of holes)
+#define ROTATION_PRE_LOAD   1600u   // distance to travel around before stopping from the last hole to pre load a pellet
 #define SPEED_PRE_LOAD      200u
 #define SPEED_DELIVER       100u
 
@@ -103,17 +103,17 @@
 ////////////////////////////////////////
 // Position Controller parameters
 ////////////////////////////////////////
-#define PID_POS_KP  2.0f
-#define PID_POS_KI  0.5f
-#define PID_POS_KD  0.25f
+#define PID_POS_KP  0.3f
+#define PID_POS_KI  0.08f
+#define PID_POS_KD  0.005f
 
 #define PID_POS_TAU 0.02f
 
-#define PID_POS_LIM_MIN -10.0f
-#define PID_POS_LIM_MAX  10.0f
+#define PID_POS_LIM_MIN -400.0f
+#define PID_POS_LIM_MAX  400.0f
 
-#define PID_POS_LIM_MIN_INT -5.0f
-#define PID_POS_LIM_MAX_INT  5.0f
+#define PID_POS_LIM_MIN_INT -25.0f
+#define PID_POS_LIM_MAX_INT  25.0f
 
 #define SAMPLE_TIME_POS_S 0.002f
 
@@ -245,9 +245,14 @@ PIDController pid_pos = { PID_POS_KP, PID_POS_KI, PID_POS_KD,
 
 struct repeating_timer control_loop;
 
+// Debounce control
+unsigned long time = to_ms_since_boot(get_absolute_time());
+const int delayTime =  250; // Delay for every push button may vary
+
 volatile int32_t motor_position = 0;
 volatile int32_t motor_position_buf;
 volatile int32_t motor_position_old = 0;
+volatile int32_t position_setpoint = 0;   // Feeder Position setpoint
 volatile int32_t motor_speed = 0;           // Actual measued speed from the motor
 volatile int32_t motor_speed_buf; 
 volatile int32_t speed_setpoint = 0;   // Motor Speed setpoint
@@ -267,10 +272,10 @@ divmod_result_t motor_speed_hw;
 
 static char event_str[128];
 
-char lcd_message_str[LCD_STRING_BUF_SIZE];
+static char lcd_message_str[LCD_STRING_BUF_SIZE];
 // char lcd_message_str_buf[LCD_STRING_BUF_SIZE];
 
-char uart_message_str[UART_STRING_BUF_SIZE];
+static char uart_message_str[UART_STRING_BUF_SIZE];
 // char uart_message_str_buf[UART_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
@@ -290,26 +295,31 @@ void gpio_event_string(char *buf, uint32_t events);
 // CORE 1
 ////////////////////////////////////////
 void gpio_callback_core_1(uint gpio, uint32_t events) {
-    switch(gpio) {
-        case pico_display.A:
-            pico_display.set_led(255,0,0);
-            multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-            break;
-        case pico_display.B:
-            pico_display.set_led(0,255,0);
-            multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-            break;
-        case pico_display.X:
-            pico_display.set_led(0,0,255);
-            multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-            break;
-        case pico_display.Y:
-            pico_display.set_led(0,0,0);
-            multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-            break;
-        default:
+    irq_clear(IO_IRQ_BANK0);
+    if ((to_ms_since_boot(get_absolute_time())-time)>delayTime) {
+        // Recommend to not to change the position of this line
+        time = to_ms_since_boot(get_absolute_time());
+        switch(gpio) {
+            case pico_display.A:
+                pico_display.set_led(255,0,0);
+                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
+                break;
+            case pico_display.B:
+                pico_display.set_led(0,255,0);
+                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
+                break;
+            case pico_display.X:
+                pico_display.set_led(0,0,255);
+                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
+                break;
+            case pico_display.Y:
+                pico_display.set_led(0,0,0);
+                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
+                break;
+            default:
 
-        break;
+            break;
+        }
     }
 }
 
@@ -354,6 +364,10 @@ bool repeating_timer_callback(struct repeating_timer *t) {
     } else {
         motor_moving = false;
     }
+
+    PIDController_Update(&pid_pos, position_setpoint, motor_position);
+
+    speed_setpoint = pid_pos.out;
 
     motor_position_old = motor_position;
     
@@ -494,7 +508,7 @@ int main()
                   "Serial Debug Task Task",       // Task Name
                   512,                            // Stack size in words
                   NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY + 1,           // Task Priority
+                  tskIDLE_PRIORITY,           // Task Priority
                   &xSerialDebugHandle );   
 #endif
 
@@ -503,7 +517,7 @@ int main()
                   "Application Task",             // Task Name
                   1024,                           // Stack size in words
                   NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY + 2,           // Task Priority
+                  tskIDLE_PRIORITY + 1,           // Task Priority
                   &xApplicationHandle );  
 
     status = xTaskCreate(
@@ -511,7 +525,7 @@ int main()
                   "Update Screen Task",           // Task Name
                   512,                            // Stack size in words
                   NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY + 1,           // Task Priority
+                  tskIDLE_PRIORITY,           // Task Priority
                   &xUpdateScreenHandle );  
 
     PIDController_Init(&pid_vel);
@@ -542,8 +556,8 @@ void vSerialDebugTask( void * pvParameters )
 
 void vApplicationTask( void * pvParameters )
 {
-    uint32_t x = 0;
-    bool status;
+    static uint32_t x = 0;
+    static bool status;
 
     // feeder_state = FEEDER_INIT;
     // initialise_feeder();     // commented out while doing the control loops
@@ -581,24 +595,28 @@ void vApplicationTask( void * pvParameters )
         if (status){           
             switch(x) {
                 case pico_display.A:
-                    sprintf(uart_message_str, "Button A Pressed\n");
-                    uart_message_flag = true;
-                    speed_setpoint += 25;
+                    // sprintf(uart_message_str, "Button A Pressed\n");
+                    // uart_message_flag = true;
+                    // speed_setpoint += 25;
+                    position_setpoint += MAX_ROTATION_HOLE;
                     break;
                 case pico_display.B:
-                    sprintf(uart_message_str, "Button B Pressed\n");
-                    uart_message_flag = true;
-                    speed_setpoint -= 25;
+                    // sprintf(uart_message_str, "Button B Pressed\n");
+                    // uart_message_flag = true;
+                    // speed_setpoint -= 25;
+                    position_setpoint -= MAX_ROTATION_HOLE;
                     break;
                 case pico_display.X:
-                    sprintf(uart_message_str, "Button X Pressed\n");
-                    uart_message_flag = true;
-                    speed_setpoint = 250;
+                    // sprintf(uart_message_str, "Button X Pressed\n");
+                    // uart_message_flag = true;
+                    // speed_setpoint = 250;
+                    position_setpoint += MAX_ROTATION_TOTAL;
                     break;
                 case pico_display.Y:
-                    sprintf(uart_message_str, "Button Y Pressed\n");
-                    uart_message_flag = true;
-                    speed_setpoint = 0;
+                    // sprintf(uart_message_str, "Button Y Pressed\n");
+                    // uart_message_flag = true;
+                    // speed_setpoint = 0;
+                    position_setpoint = 0;
                     break;
                 default:
 
@@ -614,8 +632,11 @@ void vApplicationTask( void * pvParameters )
             lcd_message_flag = true;
 
             #if UART_DEBUG
-            sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", motor_position_buf, motor_speed_buf, speed_setpoint);
-            uart_message_flag = true;
+            // sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", motor_position_buf, motor_speed_buf, speed_setpoint);
+            if (!uart_message_flag) {
+                sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
+                uart_message_flag = true;
+            }
             #endif
         }
 
