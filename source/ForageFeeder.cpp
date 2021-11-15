@@ -30,25 +30,13 @@
 // Define Hardware Pins
 ////////////////////////////////////////
 #define BNC_INPUT           11
-// #define ROTARY_SW           7
-// #define ROTARY_A            8
-// #define ROTARY_B            9
 #define PWM_OUT_ONE         2
 #define PWM_OUT_TWO         3
 #define PWM_EN              4
 #define ENC_ONE             9
 #define ENC_TWO             10
 #define BEAM_BREAK_PIN      5
-// #define GREEN_LED_PIN       25
-
-    // From Pi Pico Display Pack
-    // const uint8_t LED_R = 6;
-    // const uint8_t LED_G = 7;
-    // const uint8_t LED_B = 8;
-    // static const uint8_t A = 12;
-    // static const uint8_t B = 13;
-    // static const uint8_t X = 14;
-    // static const uint8_t Y = 15;
+#define GREEN_LED_PIN       25
 
 ////////////////////////////////////////
 // Define SET Software Values
@@ -76,12 +64,6 @@
 ////////////////////////////////////////
 // Define Feeder Application States
 ////////////////////////////////////////
-#define FEEDER_INIT         0x01
-#define FEEDER_READY        0x02
-#define FEEDER_PRE_LOAD     0x04
-#define FEEDER_DELIVER      0x08
-#define FEEDER_EMPTY        0x10
-#define FEEDER_ERROR        0x20
 
 ////////////////////////////////////////
 // Velocity Controller parameters
@@ -256,6 +238,7 @@ volatile int32_t position_setpoint = 0;   // Feeder Position setpoint
 volatile int32_t motor_speed = 0;           // Actual measued speed from the motor
 volatile int32_t motor_speed_buf; 
 volatile int32_t speed_setpoint = 0;   // Motor Speed setpoint
+volatile int32_t speed_pid_out = 0;   // Motor Speed setpoint
 uint16_t set_pwm_one = 0;               // PWM values for writing to Timer
 uint16_t set_pwm_two = 0;               // PWM values for writing to Timer
 volatile bool motor_moving;             // Flag to update screens etc.
@@ -265,7 +248,6 @@ volatile bool lcd_message_flag;
 volatile bool uart_message_flag;
 volatile bool motor_brake;
 volatile bool bnc_triggered;
-volatile uint32_t feeder_state;
 
 divmod_result_t delta_time_hw;
 divmod_result_t motor_speed_hw;
@@ -273,10 +255,8 @@ divmod_result_t motor_speed_hw;
 static char event_str[128];
 
 static char lcd_message_str[LCD_STRING_BUF_SIZE];
-// char lcd_message_str_buf[LCD_STRING_BUF_SIZE];
 
 static char uart_message_str[UART_STRING_BUF_SIZE];
-// char uart_message_str_buf[UART_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
 void vSerialDebugTask( void * pvParameters );
@@ -284,10 +264,6 @@ void vApplicationTask( void * pvParameters );
 void vUpdateScreenTask( void * pvParameters );
 
 void gpio_event_string(char *buf, uint32_t events);
-// void initialise_feeder(void);
-// void pre_load_pellet(void);
-// void deliver_pellet(void);
-// void feeder_ready(void);
 
 ////////////////////////////////////////
 // Interupt Callback Routines - START
@@ -297,7 +273,6 @@ void gpio_event_string(char *buf, uint32_t events);
 void gpio_callback_core_1(uint gpio, uint32_t events) {
     irq_clear(IO_IRQ_BANK0);
     if ((to_ms_since_boot(get_absolute_time())-time)>delayTime) {
-        // Recommend to not to change the position of this line
         time = to_ms_since_boot(get_absolute_time());
         switch(gpio) {
             case pico_display.A:
@@ -328,11 +303,11 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
 ////////////////////////////////////////
 void gpio_callback_core_0(uint gpio, uint32_t events) {
     switch(gpio) {
-        // case BEAM_BREAK_PIN:
-        //     pellet_delivered = true;
-        //     gpio_event_string(event_str, events);
-        //     printf("Pellet GPIO %d %s\n", gpio, event_str);
-        //     break;
+        case BEAM_BREAK_PIN:
+            pellet_delivered = true;
+            gpio_event_string(event_str, events);
+            printf("Pellet GPIO %d %s\n", gpio, event_str);
+            break;
         default:
 
             break;
@@ -343,7 +318,6 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
 // Timer Callback for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
     
-    // uint32_t r = 0;                             // Latest position reading
     static uint32_t r_d;                        // Change in position
     static uint64_t t_d;                        // Change in time
 
@@ -356,31 +330,22 @@ bool repeating_timer_callback(struct repeating_timer *t) {
         quad_encoder.clear_time_dif();
         motor_speed_hw = hw_divider_divmod_s32(r_d,t_d);        // Hardware division
         motor_speed = to_quotient_s32(motor_speed_hw);          // Hardware division
-        #if UART_DEBUG
-        // sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", r, motor_speed, speed_setpoint);
-        // uart_message_flag = true;
-        #endif
         motor_moving = true;
     } else {
         motor_moving = false;
     }
 
-    PIDController_Update(&pid_pos, position_setpoint, motor_position);
-
-    speed_setpoint = pid_pos.out;
-
+    speed_setpoint = PIDController_Update(&pid_pos, position_setpoint, motor_position);
     motor_position_old = motor_position;
     
     if (speed_setpoint != 0){      
         motor_brake = false;
-        PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
+        speed_pid_out = PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
     } else {
         motor_brake = true;
         PIDController_Init(&pid_vel);
     }
     
-    // pid_vel.out = speed_setpoint;
-
     return true;
 }
 
@@ -392,15 +357,15 @@ void on_pwm_wrap() {
         set_pwm_two = 4095;
         set_pwm_one = 4095;
     } else {
-        if (pid_vel.out == 0) {
+        if (speed_pid_out == 0) {
             set_pwm_two = 0;
             set_pwm_one = 0;
-        } else if (pid_vel.out > 0) {
-            set_pwm_one = pid_vel.out;
+        } else if (speed_pid_out > 0) {
+            set_pwm_one = speed_pid_out;
             if (set_pwm_one > 4095) set_pwm_one = 4095;
             set_pwm_two = 0;
         } else {
-            set_pwm_two = pid_vel.out*-1;
+            set_pwm_two = speed_pid_out*-1;
             if (set_pwm_two > 4095) set_pwm_two = 4095;
             set_pwm_one = 0;
         }
@@ -467,11 +432,14 @@ int main()
     sprintf(uart_message_str, "Hello from Core 0\n");
     uart_message_flag = true;
 
-// BEAM_BREAK_PIN 
-    // gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_init(BEAM_BREAK_PIN);
+    gpio_set_dir(BEAM_BREAK_PIN, GPIO_IN);
 
-    // gpio_init(GREEN_LED_PIN);
-    // gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
+// BEAM_BREAK_PIN 
+    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+
+    gpio_init(GREEN_LED_PIN);
+    gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
 
     gpio_init(PWM_EN);
     gpio_set_dir(PWM_EN, GPIO_OUT);
@@ -479,9 +447,7 @@ int main()
     gpio_set_function(PWM_OUT_ONE, GPIO_FUNC_PWM);
     gpio_set_function(PWM_OUT_TWO, GPIO_FUNC_PWM);
 
-    uint slice_num = pwm_gpio_to_slice_num(PWM_OUT_ONE); // slice_num for both PWM_OUT_ONE and PWM_OUT_TWO = 5
-    // sprintf(uart_message_str, "Slice Number  1%d\n", slice_num);
-    // uart_message_flag = true;
+    uint slice_num = pwm_gpio_to_slice_num(PWM_OUT_ONE); 
 
     pwm_clear_irq(slice_num);
     pwm_set_irq_enabled(slice_num, true);
@@ -536,7 +502,7 @@ int main()
     vTaskStartScheduler();
 
     while(true) {
-        /* Nothing here should run */ 
+        //
     }
 }
 
@@ -549,7 +515,7 @@ void vSerialDebugTask( void * pvParameters )
             printf(uart_message_str);
             uart_message_flag = false;
         }
-        vTaskDelay(2);
+        vTaskDelay(1);
     }
 }
 #endif
@@ -559,63 +525,22 @@ void vApplicationTask( void * pvParameters )
     static uint32_t x = 0;
     static bool status;
 
-    // feeder_state = FEEDER_INIT;
-    // initialise_feeder();     // commented out while doing the control loops
-
     for( ;; )
     {
-        // switch(feeder_state) {
-        //     case FEEDER_PRE_LOAD:
-        //         pre_load_pellet();
-        //         break;
-        //     case FEEDER_READY:
-        //         feeder_ready();
-        //         break;
-        //     case FEEDER_DELIVER:
-        //         deliver_pellet();
-        //         break;
-        //     case FEEDER_EMPTY:
-        //         initialise_feeder();
-        //         break;
-        //     case FEEDER_ERROR:
-        //         break;
-        //     default:
-        //         break;
-        // }
-
-        // sprintf(lcd_message_str, "Still here %d", x);
-        // lcd_message_flag = true;
-        // sprintf(uart_message_str, "Still here %d\n", x);
-        // uart_message_flag = true;
-        // x++;
-
         status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
 
-        // x = multicore_fifo_pop_blocking();
         if (status){           
             switch(x) {
                 case pico_display.A:
-                    // sprintf(uart_message_str, "Button A Pressed\n");
-                    // uart_message_flag = true;
-                    // speed_setpoint += 25;
                     position_setpoint += MAX_ROTATION_HOLE;
                     break;
                 case pico_display.B:
-                    // sprintf(uart_message_str, "Button B Pressed\n");
-                    // uart_message_flag = true;
-                    // speed_setpoint -= 25;
                     position_setpoint -= MAX_ROTATION_HOLE;
                     break;
                 case pico_display.X:
-                    // sprintf(uart_message_str, "Button X Pressed\n");
-                    // uart_message_flag = true;
-                    // speed_setpoint = 250;
                     position_setpoint += MAX_ROTATION_TOTAL;
                     break;
                 case pico_display.Y:
-                    // sprintf(uart_message_str, "Button Y Pressed\n");
-                    // uart_message_flag = true;
-                    // speed_setpoint = 0;
                     position_setpoint = 0;
                     break;
                 default:
@@ -632,7 +557,6 @@ void vApplicationTask( void * pvParameters )
             lcd_message_flag = true;
 
             #if UART_DEBUG
-            // sprintf(uart_message_str, "Position=%d Speed=%d Setpoint=%d\n", motor_position_buf, motor_speed_buf, speed_setpoint);
             if (!uart_message_flag) {
                 sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
                 uart_message_flag = true;
@@ -660,84 +584,6 @@ void vUpdateScreenTask( void * pvParameters )
     }
 }
 
-
-// void initialise_feeder(void) {
-//     motor_brake = false;
-//     speed_setpoint = 100;
-//     while((!pellet_delivered) && (motor_position < MAX_ROTATION_TOTAL)){
-//         vTaskDelay(1);
-//     }
-//     if (!pellet_delivered) {
-//         feeder_state = FEEDER_EMPTY;
-//         // printf("No Pellets\n");
-//         sprintf(lcd_message_str_send, "No Pellets\n");
-//         lcd_message_flag = true;
-//         pellet_delivered = false;
-//     } else {
-//         motor_brake = true;
-//         motor_position = 0;
-//         motor_position_old = 0;
-//         // printf("Pellet Delivered\n");
-//         sprintf(lcd_message_str_send, "Initialised\n");
-//         lcd_message_flag = true;
-//         pellet_delivered = false;
-//         feeder_state = FEEDER_PRE_LOAD;
-//     }
-//     speed_setpoint = 0;
-//     vTaskDelay(2000);
-// }
-
-// void pre_load_pellet(void) {
-//     speed_setpoint = SPEED_PRE_LOAD;
-//     motor_brake = false;
-//     while(motor_position < ROTATION_PRE_LOAD){
-//         vTaskDelay(1);
-//     }
-//     motor_brake = true;
-//     speed_setpoint = 0;
-//     sprintf(lcd_message_str_send, "Pellet Loaded\n");
-//     lcd_message_flag = true;
-//     bnc_triggered = false;      // just to clear an extra blips
-//     feeder_state = FEEDER_READY;
-// }
-
-// void feeder_ready(void) {
-//     // command_state = multicore_fifo_pop_blocking();
-
-//     // if (user_state == BNC_TRIGGERED) {
-//     if (bnc_triggered || rotary_switch_In_flag) {
-//         sprintf(lcd_message_str_send, "Delivery Triggered\n");
-//         lcd_message_flag = true;
-//         feeder_state = FEEDER_DELIVER;
-//         bnc_triggered = false;
-//         rotary_switch_In_flag = false;
-//     }
-// }
-
-// void deliver_pellet(void) {
-//     speed_setpoint = SPEED_DELIVER;
-//     motor_brake = false;
-//     while((!pellet_delivered) && (motor_position < MAX_ROTATION_HOLE)){
-//         vTaskDelay(1);
-//     }
-//     if (!pellet_delivered) {
-//         feeder_state = FEEDER_EMPTY;
-//         // printf("No Pellets\n");
-//         sprintf(lcd_message_str_send, "No Pellets\n");
-//         lcd_message_flag = true;
-//         pellet_delivered = false;
-//     } else {
-//         motor_brake = true;
-//         motor_position = 0;
-//         motor_position_old = 0;
-//         // printf("Pellet Delivered\n");
-//         sprintf(lcd_message_str_send, "Pellet Delivered\n");
-//         lcd_message_flag = true;
-//         pellet_delivered = false;
-//         feeder_state = FEEDER_PRE_LOAD;
-//     }
-//     speed_setpoint = 0;
-// }
 
 static const char *gpio_irq_str[] = {
         "LEVEL_LOW",  // 0x1
