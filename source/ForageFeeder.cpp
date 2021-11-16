@@ -53,6 +53,7 @@
 #define MAX_ROTATION_TOTAL  23104u
 #define MAX_ROTATION_HOLE   1925u   // basically MAX_ROTATION_TOTAL / 12 (number of holes)
 #define ROTATION_PRE_LOAD   1500u   // distance to travel around before stopping from the last hole to pre load a pellet
+#define ROTATION_OVERSHOOT  100u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up.
 #define SPEED_MAX           400u
 #define SPEED_PRE_LOAD      200u
 #define SPEED_DELIVER       100u
@@ -346,6 +347,8 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
                 pellet_delivered_count++;
                 pellet_delivered = true;
                 break;
+            case BNC_INPUT:
+                bnc_triggered = true;
             default:
 
                 break;
@@ -448,8 +451,9 @@ void swc_base() {
     // uint16_t dark_green = pico_display.create_pen(10, 100, 10);
     // uint16_t blue = pico_display.create_pen(0, 0, 255);
 
-    sprintf(lcd_message_str, "Hello from Core 1");
+    // sprintf(lcd_message_str, "Hello from Core 1");
     // sprintf(lcd_message_str, "PRESS A TO INITIALISE");
+    // sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
 
     pico_display.init();
     pico_display.set_backlight(100);
@@ -463,6 +467,8 @@ void swc_base() {
             x++;
         }
         x = 0;
+
+        sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
 
         pico_display.set_pen(white);
         pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
@@ -491,9 +497,13 @@ int main()
 
     gpio_init(BEAM_BREAK_PIN);
     gpio_set_dir(BEAM_BREAK_PIN, GPIO_IN);
+    gpio_init(BNC_INPUT);
+    gpio_set_dir(BNC_INPUT, GPIO_IN);
+    gpio_pull_up(BNC_INPUT);
 
 // BEAM_BREAK_PIN 
     gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(BNC_INPUT, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
@@ -609,8 +619,9 @@ void vApplicationTask( void * pvParameters )
     bool status;
     int i;
 
-    sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
-    uart_message_flag = true;
+    sprintf(lcd_message_str, "PRESS A TO INITIALISE\n");
+    lcd_message_flag = true;
+    vTaskDelay(10);
 
     for( ;; )
     {    
@@ -662,7 +673,7 @@ void vApplicationTask( void * pvParameters )
                     break;
                 }
             case FEEDER_DELIVERED:
-                if (A_flag && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
+                if ((A_flag || B_flag || bnc_triggered) && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
                     status = feeder_deliver_pellet();
                     i = 0;
                     while (!status) {
@@ -675,19 +686,26 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_DELIVERED;
                         application_status = application_status | FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
-                        sprintf(uart_message_str, "Pellet %d from %d Delivered\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
                         uart_message_flag = true;
                         vTaskDelay(10);
+                        // sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        // lcd_message_flag = true;
+                        vTaskDelay(100);
                     } else {
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_DELIVERED;
                         application_status = application_status & ~FEEDER_DELIVERED;
                         application_status = application_status | FEEDER_DELIVERY_ERROR;
-                        sprintf(uart_message_str, "Pellet Del ERROR\n");
+                        sprintf(uart_message_str, "Delivery ERROR!!\n");
                         uart_message_flag = true;
+                        vTaskDelay(10);
+                        sprintf(lcd_message_str, "Delivery ERROR!!\n");
+                        lcd_message_flag = true;
                         vTaskDelay(10);
                     }
                     A_flag = false;
+                    bnc_triggered = false;
                     
                 }
                 break;
@@ -736,12 +754,11 @@ void vUserInterfaceTask( void * pvParameters )
                     // position_setpoint += MAX_ROTATION_HOLE;
                     break;
                 case pico_display.B:
-                    B_flag = true;
+                    B_flag = !B_flag;
                     // position_setpoint -= MAX_ROTATION_HOLE;
                     break;
                 case pico_display.X:
                     X_flag = true;
-                    position_setpoint += MAX_ROTATION_HOLE>>2;  // will have to remove this --- DO NOT FORGET GRAEME
                     // position_setpoint += MAX_ROTATION_TOTAL;
                     break;
                 case pico_display.Y:
@@ -854,9 +871,9 @@ bool feeder_deliver_pellet() {
 
     speed_limit = SPEED_DELIVER;
     if (missed_pellet) {
-        position_setpoint = position_setpoint + MAX_ROTATION_HOLE + 100;
+        position_setpoint = position_setpoint + MAX_ROTATION_HOLE + ROTATION_OVERSHOOT;
     } else {
-        position_setpoint = position_setpoint + MAX_ROTATION_HOLE - ROTATION_PRE_LOAD + 100;
+        position_setpoint = position_setpoint + MAX_ROTATION_HOLE - ROTATION_PRE_LOAD + ROTATION_OVERSHOOT;
     }
     feeder_position_reached = false;
 
@@ -865,8 +882,6 @@ bool feeder_deliver_pellet() {
     }
 
     speed_limit = 0;
-    
-    // vTaskDelay(500);
 
     if (pellet_delivered) {
         speed_limit = 0;
