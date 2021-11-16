@@ -44,19 +44,21 @@
 #define GPIO_ON             1
 #define GPIO_OFF            0
 
-#define LEVEL_LOW           0x1
-#define LEVEL_HIGH          0x2
-#define EDGE_FALL           0x4
-#define EDGE_RISE           0x8
+// #define LEVEL_LOW           0x1
+// #define LEVEL_HIGH          0x2
+// #define EDGE_FALL           0x4
+// #define EDGE_RISE           0x8
 
 #define TIME_DIF_MAX        1000u
 #define MAX_ROTATION_TOTAL  23104u
 #define MAX_ROTATION_HOLE   1925u   // basically MAX_ROTATION_TOTAL / 12 (number of holes)
-#define ROTATION_PRE_LOAD   1600u   // distance to travel around before stopping from the last hole to pre load a pellet
+#define ROTATION_PRE_LOAD   1500u   // distance to travel around before stopping from the last hole to pre load a pellet
+#define SPEED_MAX           400u
 #define SPEED_PRE_LOAD      200u
 #define SPEED_DELIVER       100u
+#define POSITION_MARGIN     15u
 
-#define LCD_STRING_BUF_SIZE     20
+#define LCD_STRING_BUF_SIZE     30
 #define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
@@ -64,6 +66,10 @@
 ////////////////////////////////////////
 // Define Feeder Application States
 ////////////////////////////////////////
+
+#define FEEDER_START              0x01
+#define FEEDER_INITIALISED        0x02
+#define FEEDER_PRE_LOAD           0x04
 
 ////////////////////////////////////////
 // Velocity Controller parameters
@@ -229,7 +235,10 @@ struct repeating_timer control_loop;
 
 // Debounce control
 unsigned long time = to_ms_since_boot(get_absolute_time());
-const int delayTime =  250; // Delay for every push button may vary
+const int delayTime =  250;
+// block extra pellet triggers per shot - to fix pellet count
+unsigned long pellet_time = to_ms_since_boot(get_absolute_time());
+const int pellet_delay_time =  250;
 
 volatile int32_t motor_position = 0;
 volatile int32_t motor_position_buf;
@@ -239,11 +248,13 @@ volatile int32_t motor_speed = 0;           // Actual measued speed from the mot
 volatile int32_t motor_speed_buf; 
 volatile int32_t speed_setpoint = 0;   // Motor Speed setpoint
 volatile int32_t speed_pid_out = 0;   // Motor Speed setpoint
+volatile int32_t speed_limit = 0;   // Motor Speed setpoint
 uint16_t set_pwm_one = 0;               // PWM values for writing to Timer
 uint16_t set_pwm_two = 0;               // PWM values for writing to Timer
-volatile bool motor_moving;             // Flag to update screens etc.
+static bool motor_moving;             // Flag to update screens etc.
+static bool feeder_position_reached;  // flag to set when the feeder has reached the position setpoint (within a margin set by POSITION_MARGIN)
 
-volatile bool pellet_delivered;         // Flag set when pellet gets delivered
+static bool pellet_delivered = false;         // Flag set when pellet gets delivered
 volatile int32_t pellet_delivered_count = 0;
 volatile int32_t pellet_delivered_msg_count = 0;
 volatile bool lcd_message_flag;
@@ -257,15 +268,15 @@ volatile bool B_flag;
 volatile bool X_flag;
 volatile bool Y_flag;
 
-static uint32_t application_status = 0;
+volatile uint32_t application_status = 0;
+volatile uint32_t application_flags = 0;
 
 divmod_result_t delta_time_hw;
 divmod_result_t motor_speed_hw;
 
-static char event_str[128];
+// static char event_str[128];
 
 static char lcd_message_str[LCD_STRING_BUF_SIZE];
-
 static char uart_message_str[UART_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
@@ -275,7 +286,11 @@ void vUpdateScreenTask( void * pvParameters );
 void vUserInterfaceTask( void * pvParameters );
 void vSystemMonitorTask( void * pvParameters );
 
-void gpio_event_string(char *buf, uint32_t events);
+bool feeder_start(void);
+bool feeder_initialised(void);
+bool feeder_pre_load(void);
+
+// void gpio_event_string(char *buf, uint32_t events);
 
 ////////////////////////////////////////
 // Interupt Callback Routines - START
@@ -284,7 +299,7 @@ void gpio_event_string(char *buf, uint32_t events);
 ////////////////////////////////////////
 // GPIO Interupt
 void gpio_callback_core_1(uint gpio, uint32_t events) {
-    irq_clear(IO_IRQ_BANK0);
+    // irq_clear(IO_IRQ_BANK0);
     if ((to_ms_since_boot(get_absolute_time())-time)>delayTime) {
         time = to_ms_since_boot(get_absolute_time());
         switch(gpio) {
@@ -319,14 +334,18 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
 ////////////////////////////////////////
 // GPIO Interupt
 void gpio_callback_core_0(uint gpio, uint32_t events) {
-    switch(gpio) {
-        case BEAM_BREAK_PIN:
-            pellet_delivered_count++;
-            pellet_delivered = true;
-            break;
-        default:
+    
+    if ((to_ms_since_boot(get_absolute_time()) - pellet_time) > pellet_delay_time) {
+        pellet_time = to_ms_since_boot(get_absolute_time());
+        switch(gpio) {
+            case BEAM_BREAK_PIN:
+                pellet_delivered_count++;
+                pellet_delivered = true;
+                break;
+            default:
 
-            break;
+                break;
+        }
     }
 
 }
@@ -350,9 +369,18 @@ bool repeating_timer_callback(struct repeating_timer *t) {
         motor_moving = false;
     }
 
+    if (abs(position_setpoint - motor_position) > POSITION_MARGIN) {
+        feeder_position_reached = false;
+    } else {
+        feeder_position_reached = true;
+    }
+
     speed_setpoint = PIDController_Update(&pid_pos, position_setpoint, motor_position);
     motor_position_old = motor_position;
     
+    if (speed_setpoint > speed_limit) speed_setpoint = speed_limit;
+    if (speed_setpoint < (0 - speed_limit)) speed_setpoint = 0 - speed_limit;
+
     if (speed_setpoint != 0){      
         motor_brake = false;
         speed_pid_out = PIDController_Update(&pid_vel, speed_setpoint, motor_speed);
@@ -417,6 +445,7 @@ void swc_base() {
     // uint16_t blue = pico_display.create_pen(0, 0, 255);
 
     sprintf(lcd_message_str, "Hello from Core 1");
+    // sprintf(lcd_message_str, "PRESS A TO INITIALISE");
 
     pico_display.init();
     pico_display.set_backlight(100);
@@ -540,6 +569,9 @@ int main()
     PIDController_Init(&pid_pos);
 
     add_repeating_timer_us(-2000, repeating_timer_callback, NULL, &control_loop);
+    speed_limit = SPEED_MAX;
+
+    application_status = application_status | FEEDER_START;
 
     vTaskStartScheduler();
 
@@ -570,19 +602,68 @@ void vSerialDebugTask( void * pvParameters )
 
 void vApplicationTask( void * pvParameters )
 {
+    bool status;
+    int i;
+
+    sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
+    uart_message_flag = true;
+
     for( ;; )
     {    
-        if (led_toggle){
-            gpio_put(GREEN_LED_PIN, GPIO_OFF);
-            led_toggle = !led_toggle;
-        } else {
-            gpio_put(GREEN_LED_PIN, GPIO_ON);
-            led_toggle = !led_toggle;
+        switch (application_status) {
+            case FEEDER_START:
+                // sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
+                // uart_message_flag = true;
+                vTaskDelay(10);
+                if (A_flag && ((application_flags & FEEDER_START) != FEEDER_START)) {
+                    status = feeder_start();
+                    while (!status) {
+                        status = feeder_start();
+                        i++;
+                        if (i > (6 - 1)) break;
+                    }
+                    if (status) {
+                        application_flags = application_flags | FEEDER_START;
+                        application_status = application_status & ~FEEDER_START;
+                        application_status = application_status | FEEDER_INITIALISED;
+                        sprintf(uart_message_str, "FEEDER INITIALISED\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    } else {
+                        application_flags = application_flags & ~FEEDER_START;
+                        sprintf(uart_message_str, "FEEDER ERROR\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    }
+                    A_flag = false;
+                    
+                }
+                break;
+            case FEEDER_INITIALISED:
+                if ((application_flags & FEEDER_INITIALISED) != FEEDER_INITIALISED) {
+                    status = feeder_initialised();
+                    if (status) {
+                        application_flags = application_flags | FEEDER_INITIALISED;
+                        application_status = application_status & ~FEEDER_INITIALISED;
+                        application_status = application_status | FEEDER_PRE_LOAD;
+                        sprintf(uart_message_str, "FEEDER PRE LOADED\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    } else {
+                        application_flags = application_flags & ~FEEDER_INITIALISED;
+                        sprintf(uart_message_str, "FEEDER ERROR\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    }
+                    break;
+                }
+            case FEEDER_PRE_LOAD:
+                status = feeder_pre_load();
+                break;
+            default:
+                
+                break;            
         }
-
-
-
-
 
         vTaskDelay(200);
     }
@@ -604,6 +685,7 @@ void vUpdateScreenTask( void * pvParameters )
     }
 }
 
+// change in vUserInterfaceTask below for debuging - must remove --- DO NOT FORGET GRAEME
 void vUserInterfaceTask( void * pvParameters )
 {
     static uint32_t x = 0;
@@ -617,19 +699,20 @@ void vUserInterfaceTask( void * pvParameters )
             switch(x) {
                 case pico_display.A:
                     A_flag = true;
-                    position_setpoint += MAX_ROTATION_HOLE;
+                    // position_setpoint += MAX_ROTATION_HOLE;
                     break;
                 case pico_display.B:
                     B_flag = true;
-                    position_setpoint -= MAX_ROTATION_HOLE;
+                    // position_setpoint -= MAX_ROTATION_HOLE;
                     break;
                 case pico_display.X:
                     X_flag = true;
-                    position_setpoint += MAX_ROTATION_TOTAL;
+                    position_setpoint += MAX_ROTATION_HOLE>>2;  // will have to remove this --- DO NOT FORGET GRAEME
+                    // position_setpoint += MAX_ROTATION_TOTAL;
                     break;
                 case pico_display.Y:
                     Y_flag = true;
-                    position_setpoint = 0;
+                    // position_setpoint = 0;
                     break;
                 default:
 
@@ -645,19 +728,21 @@ void vSystemMonitorTask( void * pvParameters )
     for( ;; )
     {
 #if UART_DEBUG
-        if (!uart_message_flag && pellet_delivered) {
-            if (pellet_delivered_count != pellet_delivered_msg_count) {
-                sprintf(uart_message_str, "Pellet %d Delivered\n", pellet_delivered_count);
-                uart_message_flag = true;
-                pellet_delivered_msg_count = pellet_delivered_count;
-            }
-        }       
-        if (!uart_message_flag && motor_moving) {
-            sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
+        // if (!uart_message_flag && pellet_delivered) {
+        //     if (pellet_delivered_count != pellet_delivered_msg_count) {
+        //         sprintf(uart_message_str, "Pellet %d Delivered\n", pellet_delivered_count);
+        //         uart_message_flag = true;
+        //         pellet_delivered_msg_count = pellet_delivered_count;
+        //     }
+        // }
+        motor_position_buf = motor_position;       
+        if (!uart_message_flag && !feeder_position_reached) {
+            sprintf(uart_message_str, "Position=%d PosSet=%d Pellets=%d\n", motor_position_buf, position_setpoint, pellet_delivered_count);
+            // sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
             uart_message_flag = true;
         }
 #endif
-        vTaskDelay(2);
+        vTaskDelay(20);
     }
 }
 
@@ -665,30 +750,98 @@ void vSystemMonitorTask( void * pvParameters )
 // FreeRTOS Tasks - will run on Core 0 - END
 ////////////////////////////////////////
 
-static const char *gpio_irq_str[] = {
-        "LEVEL_LOW",  // 0x1
-        "LEVEL_HIGH", // 0x2
-        "EDGE_FALL",  // 0x4
-        "EDGE_RISE"   // 0x8
-};
 
-void gpio_event_string(char *buf, uint32_t events) {
-    for (uint i = 0; i < 4; i++) {
-        uint mask = (1 << i);
-        if (events & mask) {
-            // Copy this event string into the user string
-            const char *event_str = gpio_irq_str[i];
-            while (*event_str != '\0') {
-                *buf++ = *event_str++;
-            }
-            events &= ~mask;
+bool feeder_start() {
 
-            // If more events add ", "
-            if (events) {
-                *buf++ = ',';
-                *buf++ = ' ';
-            }
-        }
+    sprintf(uart_message_str, "INITIALISING\n");
+    uart_message_flag = true;
+    vTaskDelay(10);
+
+    speed_limit = SPEED_DELIVER;
+    position_setpoint = position_setpoint + MAX_ROTATION_HOLE;
+    feeder_position_reached = false;
+
+    while (!feeder_position_reached && !pellet_delivered) {
+        // vTaskDelay(1);
     }
-    *buf++ = '\0';
+    
+    if (pellet_delivered) {
+        speed_limit = 0;
+        quad_encoder.set_rotation(0);
+        position_setpoint = 0;
+        PIDController_Init(&pid_pos);
+        PIDController_Init(&pid_vel);
+        vTaskDelay(5);
+        speed_limit = SPEED_PRE_LOAD;
+        return true;
+    } else {
+        return false;
+    }
 }
+
+
+bool feeder_initialised() {
+
+    // if (led_toggle){
+    //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
+    //     led_toggle = !led_toggle;
+    // } else {
+    //     gpio_put(GREEN_LED_PIN, GPIO_ON);
+    //     led_toggle = !led_toggle;
+    // }
+
+    sprintf(uart_message_str, "Gone into feeder init\n");
+    uart_message_flag = true;
+
+    vTaskDelay(1000);
+    return true;
+
+}
+
+bool feeder_pre_load() {
+
+    if (led_toggle){
+        gpio_put(GREEN_LED_PIN, GPIO_OFF);
+        led_toggle = !led_toggle;
+    } else {
+        gpio_put(GREEN_LED_PIN, GPIO_ON);
+        led_toggle = !led_toggle;
+    }
+    vTaskDelay(200);
+    return true;
+
+}
+////////////////////////////////////////
+// Debug code for GPIO Interupts - START
+////////////////////////////////////////
+
+// static const char *gpio_irq_str[] = {
+//         "LEVEL_LOW",  // 0x1
+//         "LEVEL_HIGH", // 0x2
+//         "EDGE_FALL",  // 0x4
+//         "EDGE_RISE"   // 0x8
+// };
+
+// void gpio_event_string(char *buf, uint32_t events) {
+//     for (uint i = 0; i < 4; i++) {
+//         uint mask = (1 << i);
+//         if (events & mask) {
+//             // Copy this event string into the user string
+//             const char *event_str = gpio_irq_str[i];
+//             while (*event_str != '\0') {
+//                 *buf++ = *event_str++;
+//             }
+//             events &= ~mask;
+//             // If more events add ", "
+//             if (events) {
+//                 *buf++ = ',';
+//                 *buf++ = ' ';
+//             }
+//         }
+//     }
+//     *buf++ = '\0';
+// }
+
+////////////////////////////////////////
+// Debug code for GPIO Interupts - END
+////////////////////////////////////////
