@@ -244,10 +244,20 @@ uint16_t set_pwm_two = 0;               // PWM values for writing to Timer
 volatile bool motor_moving;             // Flag to update screens etc.
 
 volatile bool pellet_delivered;         // Flag set when pellet gets delivered
+volatile int32_t pellet_delivered_count = 0;
+volatile int32_t pellet_delivered_msg_count = 0;
 volatile bool lcd_message_flag;
 volatile bool uart_message_flag;
 volatile bool motor_brake;
 volatile bool bnc_triggered;
+volatile bool led_toggle;
+
+volatile bool A_flag;
+volatile bool B_flag;
+volatile bool X_flag;
+volatile bool Y_flag;
+
+static uint32_t application_status = 0;
 
 divmod_result_t delta_time_hw;
 divmod_result_t motor_speed_hw;
@@ -262,14 +272,17 @@ static char uart_message_str[UART_STRING_BUF_SIZE];
 void vSerialDebugTask( void * pvParameters );
 void vApplicationTask( void * pvParameters );
 void vUpdateScreenTask( void * pvParameters );
+void vUserInterfaceTask( void * pvParameters );
+void vSystemMonitorTask( void * pvParameters );
 
 void gpio_event_string(char *buf, uint32_t events);
 
 ////////////////////////////////////////
 // Interupt Callback Routines - START
 ////////////////////////////////////////
-// CORE 1
+// CORE 1 - START
 ////////////////////////////////////////
+// GPIO Interupt
 void gpio_callback_core_1(uint gpio, uint32_t events) {
     irq_clear(IO_IRQ_BANK0);
     if ((to_ms_since_boot(get_absolute_time())-time)>delayTime) {
@@ -297,16 +310,19 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
         }
     }
 }
+////////////////////////////////////////
+// CORE 1 - END
+////////////////////////////////////////
 
 ////////////////////////////////////////
-// CORE 0
+// CORE 0 - START
 ////////////////////////////////////////
+// GPIO Interupt
 void gpio_callback_core_0(uint gpio, uint32_t events) {
     switch(gpio) {
         case BEAM_BREAK_PIN:
+            pellet_delivered_count++;
             pellet_delivered = true;
-            gpio_event_string(event_str, events);
-            printf("Pellet GPIO %d %s\n", gpio, event_str);
             break;
         default:
 
@@ -314,8 +330,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
     }
 
 }
-
-// Timer Callback for 2ms Control Loop.
+// Timer Callback Interupt for 2ms Control Loop.
 bool repeating_timer_callback(struct repeating_timer *t) {
     
     static uint32_t r_d;                        // Change in position
@@ -348,7 +363,7 @@ bool repeating_timer_callback(struct repeating_timer *t) {
     
     return true;
 }
-
+// PWM Wrap Interupt
 void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_OUT_ONE));
@@ -374,11 +389,15 @@ void on_pwm_wrap() {
     pwm_set_gpio_level(PWM_OUT_ONE, set_pwm_one);
     pwm_set_gpio_level(PWM_OUT_TWO, set_pwm_two);
 }
-
+////////////////////////////////////////
+// CORE 0 - END
+////////////////////////////////////////
 // Interupt Callback Routines - END
+////////////////////////////////////////
 
-
+////////////////////////////////////////
 // SWC Base code - will run on Core 1 - START
+////////////////////////////////////////
 void swc_base() {
 
     
@@ -420,8 +439,13 @@ void swc_base() {
     }
 
 }
+////////////////////////////////////////
 // SWC Base code - will run on Core 1 - END
+////////////////////////////////////////
 
+////////////////////////////////////////
+// Main code - will run on Core 0 - START
+////////////////////////////////////////
 int main() 
 {
     multicore_launch_core1(swc_base);
@@ -467,14 +491,16 @@ int main()
 #endif
     TaskHandle_t xApplicationHandle = NULL;
     TaskHandle_t xUpdateScreenHandle = NULL;
+    TaskHandle_t xUserInterfaceHandle = NULL;
+    TaskHandle_t xSystemMonitorTask = NULL;
 
 #if UART_DEBUG
     status = xTaskCreate(
                   vSerialDebugTask,               // Task Function
                   "Serial Debug Task Task",       // Task Name
-                  512,                            // Stack size in words
+                  256,                            // Stack size in words
                   NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY,           // Task Priority
+                  tskIDLE_PRIORITY,               // Task Priority
                   &xSerialDebugHandle );   
 #endif
 
@@ -483,16 +509,32 @@ int main()
                   "Application Task",             // Task Name
                   1024,                           // Stack size in words
                   NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY + 1,           // Task Priority
+                  tskIDLE_PRIORITY + 3,           // Task Priority
                   &xApplicationHandle );  
 
     status = xTaskCreate(
                   vUpdateScreenTask,              // Task Function
                   "Update Screen Task",           // Task Name
-                  512,                            // Stack size in words
+                  256,                            // Stack size in words
                   NULL,                           // Parameter passed to task
                   tskIDLE_PRIORITY,           // Task Priority
                   &xUpdateScreenHandle );  
+
+    status = xTaskCreate(
+                  vUserInterfaceTask,              // Task Function
+                  "User Interface Task",           // Task Name
+                  256,                            // Stack size in words
+                  NULL,                           // Parameter passed to task
+                  tskIDLE_PRIORITY + 2,           // Task Priority
+                  &xUserInterfaceHandle ); 
+
+    status = xTaskCreate(
+                  vSystemMonitorTask,              // Task Function
+                  "System Monitor Task",           // Task Name
+                  256,                            // Stack size in words
+                  NULL,                           // Parameter passed to task
+                  tskIDLE_PRIORITY + 1,           // Task Priority
+                  &xSystemMonitorTask ); 
 
     PIDController_Init(&pid_vel);
     PIDController_Init(&pid_pos);
@@ -505,7 +547,13 @@ int main()
         //
     }
 }
+////////////////////////////////////////
+// Main code - will run on Core 0 - END
+////////////////////////////////////////
 
+////////////////////////////////////////
+// FreeRTOS Tasks - will run on Core 0 - START
+////////////////////////////////////////
 #if UART_DEBUG
 void vSerialDebugTask( void * pvParameters )
 {
@@ -522,49 +570,21 @@ void vSerialDebugTask( void * pvParameters )
 
 void vApplicationTask( void * pvParameters )
 {
-    static uint32_t x = 0;
-    static bool status;
-
     for( ;; )
-    {
-        status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
-
-        if (status){           
-            switch(x) {
-                case pico_display.A:
-                    position_setpoint += MAX_ROTATION_HOLE;
-                    break;
-                case pico_display.B:
-                    position_setpoint -= MAX_ROTATION_HOLE;
-                    break;
-                case pico_display.X:
-                    position_setpoint += MAX_ROTATION_TOTAL;
-                    break;
-                case pico_display.Y:
-                    position_setpoint = 0;
-                    break;
-                default:
-
-                break;
-            }
+    {    
+        if (led_toggle){
+            gpio_put(GREEN_LED_PIN, GPIO_OFF);
+            led_toggle = !led_toggle;
+        } else {
+            gpio_put(GREEN_LED_PIN, GPIO_ON);
+            led_toggle = !led_toggle;
         }
 
-        if (motor_moving) {   
-            motor_position_buf = motor_position;
-            motor_speed_buf = motor_speed;
 
-            sprintf(lcd_message_str, "Position=%d", motor_position_buf);
-            lcd_message_flag = true;
 
-            #if UART_DEBUG
-            if (!uart_message_flag) {
-                sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
-                uart_message_flag = true;
-            }
-            #endif
-        }
 
-        vTaskDelay(100);
+
+        vTaskDelay(200);
     }
 }
 
@@ -584,6 +604,66 @@ void vUpdateScreenTask( void * pvParameters )
     }
 }
 
+void vUserInterfaceTask( void * pvParameters )
+{
+    static uint32_t x = 0;
+    static bool status;
+
+    for( ;; )
+    {
+        status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
+
+        if (status){           
+            switch(x) {
+                case pico_display.A:
+                    A_flag = true;
+                    position_setpoint += MAX_ROTATION_HOLE;
+                    break;
+                case pico_display.B:
+                    B_flag = true;
+                    position_setpoint -= MAX_ROTATION_HOLE;
+                    break;
+                case pico_display.X:
+                    X_flag = true;
+                    position_setpoint += MAX_ROTATION_TOTAL;
+                    break;
+                case pico_display.Y:
+                    Y_flag = true;
+                    position_setpoint = 0;
+                    break;
+                default:
+
+                break;
+            }
+        }
+        vTaskDelay(50);
+    }
+}
+ 
+void vSystemMonitorTask( void * pvParameters )
+{
+    for( ;; )
+    {
+#if UART_DEBUG
+        if (!uart_message_flag && pellet_delivered) {
+            if (pellet_delivered_count != pellet_delivered_msg_count) {
+                sprintf(uart_message_str, "Pellet %d Delivered\n", pellet_delivered_count);
+                uart_message_flag = true;
+                pellet_delivered_msg_count = pellet_delivered_count;
+            }
+        }       
+        if (!uart_message_flag && motor_moving) {
+            sprintf(uart_message_str, "Position=%d PosSet=%d SpeedSet=%d\n", motor_position_buf, position_setpoint, speed_setpoint);
+            uart_message_flag = true;
+        }
+#endif
+        vTaskDelay(2);
+    }
+}
+
+////////////////////////////////////////
+// FreeRTOS Tasks - will run on Core 0 - END
+////////////////////////////////////////
 
 static const char *gpio_irq_str[] = {
         "LEVEL_LOW",  // 0x1
