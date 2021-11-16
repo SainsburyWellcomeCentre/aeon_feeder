@@ -643,6 +643,7 @@ void vApplicationTask( void * pvParameters )
                         application_flags = application_flags | FEEDER_PRE_LOAD;
                         application_status = application_status & ~FEEDER_PRE_LOAD;
                         application_status = application_status | FEEDER_DELIVERED;
+                        application_flags = application_flags & ~FEEDER_DELIVERED;
                         sprintf(uart_message_str, "FEEDER PRE LOADED\n");
                         uart_message_flag = true;
                         vTaskDelay(10);
@@ -655,7 +656,31 @@ void vApplicationTask( void * pvParameters )
                     break;
                 }
             case FEEDER_DELIVERED:
-                status = feeder_deliver_pellet();
+                if (A_flag && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
+                    status = feeder_deliver_pellet();
+                    while (!status) {
+                        status = feeder_deliver_pellet();
+                        i++;
+                        if (i > (6 - 1)) break;
+                    }
+                    if (status) {
+                        application_flags = application_flags | FEEDER_DELIVERED;
+                        application_status = application_status & ~FEEDER_DELIVERED;
+                        application_status = application_status | FEEDER_PRE_LOAD;
+                        application_flags = application_flags & ~FEEDER_PRE_LOAD;
+                        sprintf(uart_message_str, "Pellet Delivered\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    } else {
+                        application_flags = application_flags & ~FEEDER_PRE_LOAD;
+                        application_flags = application_flags & ~FEEDER_DELIVERED;
+                        sprintf(uart_message_str, "Pellet Del ERROR\n");
+                        uart_message_flag = true;
+                        vTaskDelay(10);
+                    }
+                    A_flag = false;
+                    
+                }
                 break;
             default:
                 
@@ -769,6 +794,7 @@ bool feeder_initialise() {
         PIDController_Init(&pid_pos);
         PIDController_Init(&pid_vel);
         vTaskDelay(5);
+        pellet_delivered = false;
         speed_limit = SPEED_PRE_LOAD;
         return true;
     } else {
@@ -788,8 +814,14 @@ bool feeder_pre_load_pellet() {
     feeder_position_reached = false;
 
     while (!feeder_position_reached) {
-        vTaskDelay(10);
+        vTaskDelay(1);
     }
+    
+    speed_limit = 0;
+    PIDController_Init(&pid_pos);
+    PIDController_Init(&pid_vel);
+    vTaskDelay(10);
+    speed_limit = SPEED_DELIVER;
     
     sprintf(uart_message_str, "Pre Loaded Pellet\n");
     uart_message_flag = true;
@@ -805,17 +837,48 @@ bool feeder_pre_load_pellet() {
 
 bool feeder_deliver_pellet() {
 
-    if (led_toggle){
-        gpio_put(GREEN_LED_PIN, GPIO_OFF);
-        led_toggle = !led_toggle;
-    } else {
-        gpio_put(GREEN_LED_PIN, GPIO_ON);
-        led_toggle = !led_toggle;
-    }
-    vTaskDelay(200);
-    return true;
+    sprintf(uart_message_str, "Delivering Pellet\n");
+    uart_message_flag = true;
+    vTaskDelay(10);
 
+    speed_limit = SPEED_DELIVER;
+    position_setpoint = position_setpoint + MAX_ROTATION_HOLE - ROTATION_PRE_LOAD;
+    feeder_position_reached = false;
+
+    while (!feeder_position_reached && !pellet_delivered) {
+        vTaskDelay(10);
+    }
+    
+    if (pellet_delivered) {
+        speed_limit = 0;
+        quad_encoder.set_rotation(0);
+        position_setpoint = 0;
+        PIDController_Init(&pid_pos);
+        PIDController_Init(&pid_vel);
+        vTaskDelay(5);
+        pellet_delivered = false;
+        speed_limit = SPEED_PRE_LOAD;
+        return true;
+    } else {
+        return false;
+    }
 }
+
+// bool feeder_deliver_pellet() {
+
+//     if (led_toggle){
+//         gpio_put(GREEN_LED_PIN, GPIO_OFF);
+//         led_toggle = !led_toggle;
+//     } else {
+//         gpio_put(GREEN_LED_PIN, GPIO_ON);
+//         led_toggle = !led_toggle;
+//     }
+//     vTaskDelay(200);
+//     return true;
+
+// }
+
+
 ////////////////////////////////////////
 // Debug code for GPIO Interupts - START
 ////////////////////////////////////////
