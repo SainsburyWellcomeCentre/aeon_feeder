@@ -67,9 +67,9 @@
 // Define Feeder Application States
 ////////////////////////////////////////
 
-#define FEEDER_START              0x01
-#define FEEDER_INITIALISED        0x02
-#define FEEDER_PRE_LOAD           0x04
+#define FEEDER_INITIALISE         0x01
+#define FEEDER_PRE_LOAD        0x02
+#define FEEDER_DELIVERED           0x04
 
 ////////////////////////////////////////
 // Velocity Controller parameters
@@ -286,9 +286,9 @@ void vUpdateScreenTask( void * pvParameters );
 void vUserInterfaceTask( void * pvParameters );
 void vSystemMonitorTask( void * pvParameters );
 
-bool feeder_start(void);
-bool feeder_initialised(void);
-bool feeder_pre_load(void);
+bool feeder_initialise(void);
+bool feeder_pre_load_pellet(void);
+bool feeder_deliver_pellet(void);
 
 // void gpio_event_string(char *buf, uint32_t events);
 
@@ -571,7 +571,7 @@ int main()
     add_repeating_timer_us(-2000, repeating_timer_callback, NULL, &control_loop);
     speed_limit = SPEED_MAX;
 
-    application_status = application_status | FEEDER_START;
+    application_status = application_status | FEEDER_INITIALISE;
 
     vTaskStartScheduler();
 
@@ -611,26 +611,23 @@ void vApplicationTask( void * pvParameters )
     for( ;; )
     {    
         switch (application_status) {
-            case FEEDER_START:
-                // sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
-                // uart_message_flag = true;
-                vTaskDelay(10);
-                if (A_flag && ((application_flags & FEEDER_START) != FEEDER_START)) {
-                    status = feeder_start();
+            case FEEDER_INITIALISE:
+                if (A_flag && ((application_flags & FEEDER_INITIALISE) != FEEDER_INITIALISE)) {
+                    status = feeder_initialise();
                     while (!status) {
-                        status = feeder_start();
+                        status = feeder_initialise();
                         i++;
                         if (i > (6 - 1)) break;
                     }
                     if (status) {
-                        application_flags = application_flags | FEEDER_START;
-                        application_status = application_status & ~FEEDER_START;
-                        application_status = application_status | FEEDER_INITIALISED;
+                        application_flags = application_flags | FEEDER_INITIALISE;
+                        application_status = application_status & ~FEEDER_INITIALISE;
+                        application_status = application_status | FEEDER_PRE_LOAD;
                         sprintf(uart_message_str, "FEEDER INITIALISED\n");
                         uart_message_flag = true;
                         vTaskDelay(10);
                     } else {
-                        application_flags = application_flags & ~FEEDER_START;
+                        application_flags = application_flags & ~FEEDER_INITIALISE;
                         sprintf(uart_message_str, "FEEDER ERROR\n");
                         uart_message_flag = true;
                         vTaskDelay(10);
@@ -639,26 +636,26 @@ void vApplicationTask( void * pvParameters )
                     
                 }
                 break;
-            case FEEDER_INITIALISED:
-                if ((application_flags & FEEDER_INITIALISED) != FEEDER_INITIALISED) {
-                    status = feeder_initialised();
+            case FEEDER_PRE_LOAD:
+                if ((application_flags & FEEDER_PRE_LOAD) != FEEDER_PRE_LOAD) {
+                    status = feeder_pre_load_pellet();
                     if (status) {
-                        application_flags = application_flags | FEEDER_INITIALISED;
-                        application_status = application_status & ~FEEDER_INITIALISED;
-                        application_status = application_status | FEEDER_PRE_LOAD;
+                        application_flags = application_flags | FEEDER_PRE_LOAD;
+                        application_status = application_status & ~FEEDER_PRE_LOAD;
+                        application_status = application_status | FEEDER_DELIVERED;
                         sprintf(uart_message_str, "FEEDER PRE LOADED\n");
                         uart_message_flag = true;
                         vTaskDelay(10);
                     } else {
-                        application_flags = application_flags & ~FEEDER_INITIALISED;
+                        application_flags = application_flags & ~FEEDER_PRE_LOAD;
                         sprintf(uart_message_str, "FEEDER ERROR\n");
                         uart_message_flag = true;
                         vTaskDelay(10);
                     }
                     break;
                 }
-            case FEEDER_PRE_LOAD:
-                status = feeder_pre_load();
+            case FEEDER_DELIVERED:
+                status = feeder_deliver_pellet();
                 break;
             default:
                 
@@ -751,7 +748,7 @@ void vSystemMonitorTask( void * pvParameters )
 ////////////////////////////////////////
 
 
-bool feeder_start() {
+bool feeder_initialise() {
 
     sprintf(uart_message_str, "INITIALISING\n");
     uart_message_flag = true;
@@ -780,25 +777,33 @@ bool feeder_start() {
 }
 
 
-bool feeder_initialised() {
+bool feeder_pre_load_pellet() {
 
-    // if (led_toggle){
-    //     gpio_put(GREEN_LED_PIN, GPIO_OFF);
-    //     led_toggle = !led_toggle;
-    // } else {
-    //     gpio_put(GREEN_LED_PIN, GPIO_ON);
-    //     led_toggle = !led_toggle;
-    // }
-
-    sprintf(uart_message_str, "Gone into feeder init\n");
+    sprintf(uart_message_str, "Pre Loading Pellet\n");
     uart_message_flag = true;
+    vTaskDelay(10);
 
-    vTaskDelay(1000);
-    return true;
+    speed_limit = SPEED_PRE_LOAD;
+    position_setpoint = position_setpoint + ROTATION_PRE_LOAD;
+    feeder_position_reached = false;
+
+    while (!feeder_position_reached) {
+        vTaskDelay(10);
+    }
+    
+    sprintf(uart_message_str, "Pre Loaded Pellet\n");
+    uart_message_flag = true;
+    vTaskDelay(10);
+
+    if (feeder_position_reached) {
+        return true;
+    } else {
+        return false;
+    }
 
 }
 
-bool feeder_pre_load() {
+bool feeder_deliver_pellet() {
 
     if (led_toggle){
         gpio_put(GREEN_LED_PIN, GPIO_OFF);
