@@ -468,7 +468,7 @@ void swc_base() {
         }
         x = 0;
 
-        sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+        sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count); // by rights this should not work pulling data from Core 0
 
         pico_display.set_pen(white);
         pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
