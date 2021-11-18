@@ -74,6 +74,14 @@
 #define FEEDER_DELIVERY_ERROR       0x08
 
 ////////////////////////////////////////
+// Define Display Update Types
+////////////////////////////////////////
+
+#define DISPLAY_MESSAGE             0x01
+#define DISPLAY_STATUS              0x02
+#define DISPLAY_COUNTS              0x04
+
+////////////////////////////////////////
 // Velocity Controller parameters
 ////////////////////////////////////////
 #define PID_VEL_KP  10.0f
@@ -443,6 +451,8 @@ void swc_base() {
 
 
     int x = 0;
+    bool message;
+
     uint16_t white = pico_display.create_pen(255, 255, 255);
     // uint16_t black = pico_display.create_pen(0, 0, 0);
     // uint16_t red = pico_display.create_pen(255, 0, 0);
@@ -462,19 +472,26 @@ void swc_base() {
         pico_display.set_pen(0, 0, 0);
         pico_display.clear();
 
-        while(multicore_fifo_rvalid()) {
-            lcd_message_str[x] = multicore_fifo_pop_blocking();
-            x++;
-        }
         x = 0;
 
-        sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count); // by rights this should not work pulling data from Core 0
+        if (multicore_fifo_rvalid()) {
+            while(x < LCD_STRING_BUF_SIZE) {
+                lcd_message_str[x] = multicore_fifo_pop_blocking();
+                x++;
+            }
+            message = true;
+        }
 
-        pico_display.set_pen(white);
-        pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
-        pico_display.text(lcd_message_str, Point(0, 30), 240, 1);
 
-        pico_display.update();
+        if (message) {
+            pico_display.set_pen(white);
+            pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
+            pico_display.text(lcd_message_str, Point(0, 30), 240, 1);
+
+            pico_display.update();
+            message = false;
+        }
+
     }
 
 }
@@ -689,9 +706,9 @@ void vApplicationTask( void * pvParameters )
                         sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
                         uart_message_flag = true;
                         vTaskDelay(10);
-                        // sprintf(lcd_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
-                        // lcd_message_flag = true;
-                        vTaskDelay(100);
+                        sprintf(lcd_message_str, "Del %d / %d", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        lcd_message_flag = true;
+                        vTaskDelay(10);
                     } else {
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_DELIVERED;
@@ -723,15 +740,31 @@ void vApplicationTask( void * pvParameters )
 
 void vUpdateScreenTask( void * pvParameters )
 {
+    int x;
     int y;
+    bool status;
+
     for( ;; )
     {
         if (lcd_message_flag) {
-
-            for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
-                multicore_fifo_push_blocking((uintptr_t) lcd_message_str[y]);
+            // x = DISPLAY_MESSAGE;
+            // multicore_fifo_push_blocking((uintptr_t) &x);
+            y = 0;
+            while (y < LCD_STRING_BUF_SIZE) {
+                if (multicore_fifo_wready()) {
+                    status = multicore_fifo_push_timeout_us((uintptr_t) lcd_message_str[y], 10);
+                    if (status) {
+                        y++;
+                    }
+                }
+                vTaskDelay(1);
             }
-            lcd_message_flag = false;
+
+
+            // for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
+            //     multicore_fifo_push_blocking((uintptr_t) lcd_message_str[y]);
+            // }
+            // lcd_message_flag = false;
         }
         vTaskDelay(20);
     }
