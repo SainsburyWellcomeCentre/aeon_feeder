@@ -59,7 +59,7 @@
 #define SPEED_DELIVER       100u
 #define POSITION_MARGIN     15u
 
-#define LCD_STRING_BUF_SIZE     30
+#define LCD_STRING_BUF_SIZE     40
 #define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
@@ -266,6 +266,12 @@ static bool feeder_position_reached;  // flag to set when the feeder has reached
 
 static bool pellet_delivered = false;         // Flag set when pellet gets delivered
 volatile int32_t pellet_delivered_count = 0;
+volatile int32_t pellet_delivered_count_1 = 0;
+volatile int32_t pellet_delivered_count_2 = 0;
+volatile int32_t pellet_delivered_count_3 = 0;
+volatile int32_t pellet_delivered_count_4 = 0;
+volatile int32_t pellet_delivered_count_5 = 0;
+volatile int32_t pellet_delivered_count_6 = 0;
 volatile int32_t pellet_missed_count = 0;
 volatile int32_t pellet_delivered_msg_count = 0;
 static bool missed_pellet;
@@ -289,6 +295,9 @@ divmod_result_t motor_speed_hw;
 // static char event_str[128];
 
 static char lcd_message_str[LCD_STRING_BUF_SIZE];
+static char lcd_message_str_core1[LCD_STRING_BUF_SIZE];
+static char lcd_message_str_core1a[LCD_STRING_BUF_SIZE];
+static char lcd_message_str_core1b[LCD_STRING_BUF_SIZE];
 static char uart_message_str[UART_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
@@ -353,7 +362,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
         switch(gpio) {
             case BEAM_BREAK_PIN:
                 // if (gpio_get(BEAM_BREAK_PIN)) {
-                    pellet_delivered_count++;
+                    // pellet_delivered_count++;
                     pellet_delivered = true;
                 // }
                 break;
@@ -478,7 +487,12 @@ void swc_base() {
 
         if (multicore_fifo_rvalid()) {
             while(x < LCD_STRING_BUF_SIZE) {
-                lcd_message_str[x] = multicore_fifo_pop_blocking();
+                lcd_message_str_core1[x] = multicore_fifo_pop_blocking();
+                if (lcd_message_str_core1[0] == 0x31) {
+                    lcd_message_str_core1b[x] = lcd_message_str_core1[x];
+                } else {
+                    lcd_message_str_core1a[x] = lcd_message_str_core1[x];
+                }
                 x++;
             }
             message = true;
@@ -488,7 +502,11 @@ void swc_base() {
         if (message) {
             pico_display.set_pen(white);
             pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
-            pico_display.text(lcd_message_str, Point(0, 30), 240, 1);
+            
+                pico_display.text(lcd_message_str_core1a, Point(0, 30), 240, 1);
+            // } else {
+                pico_display.text(lcd_message_str_core1b, Point(0, 60), 240, 1);
+            // }
 
             pico_display.update();
             message = false;
@@ -647,9 +665,9 @@ void vApplicationTask( void * pvParameters )
         switch (application_status) {
             case FEEDER_INITIALISE:
                 if (A_flag && ((application_flags & FEEDER_INITIALISE) != FEEDER_INITIALISE)) {
-                    sprintf(uart_message_str, "Case Init\n");
-                    uart_message_flag = true;
-                    vTaskDelay(5);
+                    // sprintf(uart_message_str, "Case Init\n");
+                    // uart_message_flag = true;
+                    // vTaskDelay(5);
                     status = feeder_initialise();
                     i = 0;
                     while (!status) {
@@ -667,10 +685,14 @@ void vApplicationTask( void * pvParameters )
                         sprintf(lcd_message_str, "FEEDER INITIALISED");
                         lcd_message_flag = true;
                         vTaskDelay(10);
+                        i = 0;
                     } else {
                         application_flags = application_flags & ~FEEDER_INITIALISE;
-                        sprintf(uart_message_str, "FEEDER ERROR\n");
+                        sprintf(uart_message_str, "FEEDER INITIALISE ERROR\n");
                         uart_message_flag = true;
+                        vTaskDelay(10);
+                        sprintf(lcd_message_str, "FEEDER INITIALISE ERROR");
+                        lcd_message_flag = true;
                         vTaskDelay(10);
                     }
                     A_flag = false;
@@ -679,31 +701,31 @@ void vApplicationTask( void * pvParameters )
                 break;
             case FEEDER_PRE_LOAD:
                 if ((application_flags & FEEDER_PRE_LOAD) != FEEDER_PRE_LOAD) {
-                    sprintf(uart_message_str, "Case Pre-Load\n");
-                    uart_message_flag = true;
-                    vTaskDelay(5);
+                    // sprintf(uart_message_str, "Case Pre-Load\n");
+                    // uart_message_flag = true;
+                    // vTaskDelay(5);
                     status = feeder_pre_load_pellet();
                     if (status) {
                         application_flags = application_flags | FEEDER_PRE_LOAD;
                         application_status = application_status & ~FEEDER_PRE_LOAD;
                         application_status = application_status | FEEDER_DELIVERED;
                         application_flags = application_flags & ~FEEDER_DELIVERED;
-                        sprintf(uart_message_str, "Pre Loaded Pellet\n");
-                        uart_message_flag = true;
-                        vTaskDelay(5);
+                        // sprintf(uart_message_str, "Pre Loaded Pellet\n");
+                        // uart_message_flag = true;
+                        // vTaskDelay(5);
                     } else {
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
-                        sprintf(uart_message_str, "FEEDER ERROR\n");
-                        uart_message_flag = true;
-                        vTaskDelay(10);
+                        // sprintf(uart_message_str, "FEEDER ERROR\n");
+                        // uart_message_flag = true;
+                        // vTaskDelay(10);
                     }
                     break;
                 }
             case FEEDER_DELIVERED:
                 if ((A_flag || B_flag || bnc_triggered) && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
-                    sprintf(uart_message_str, "Case Feeder\n");
-                    uart_message_flag = true;
-                    vTaskDelay(5);
+                    // sprintf(uart_message_str, "Case Feeder\n");
+                    // uart_message_flag = true;
+                    // vTaskDelay(5);
                     status = feeder_deliver_pellet();
                     // i = 0;
                     // while (!status) {
@@ -716,13 +738,40 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_DELIVERED;
                         application_status = application_status | FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
-                        sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+
+                        switch(i) {
+                            case 1:
+                                pellet_delivered_count_1++;
+                                break;
+                            case 2:
+                                pellet_delivered_count_2++;
+                                break;
+                            case 3:
+                                pellet_delivered_count_3++;
+                                break;
+                            case 4:
+                                pellet_delivered_count_4++;
+                                break;
+                            case 5:
+                                pellet_delivered_count_5++;
+                                break;
+                            case 6:
+                                pellet_delivered_count_6++;
+                                break;
+                            default:
+                                break;
+                        }
+                        // sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        while (uart_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+                        sprintf(uart_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d\n", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
                         uart_message_flag = true;
-                        vTaskDelay(10);
-                        sprintf(lcd_message_str, "Del %d / %d", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        // vTaskDelay(10);
+                        // sprintf(lcd_message_str, "Del %d / %d", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                        while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+                        sprintf(lcd_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
                         lcd_message_flag = true;
-                        vTaskDelay(10);
-                        i = 0;
+                        // vTaskDelay(10);
+                        i = 1;
                         A_flag = false;
                         bnc_triggered = false;
                     } else {
@@ -735,22 +784,23 @@ void vApplicationTask( void * pvParameters )
                             sprintf(uart_message_str, "Delivery ERROR!!\n");
                             uart_message_flag = true;
                             vTaskDelay(10);
-                            sprintf(lcd_message_str, "Delivery ERROR!!\n");
+                            while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+                            sprintf(lcd_message_str, "Delivery ERROR!!");
                             lcd_message_flag = true;
                             vTaskDelay(10);
                             A_flag = false;
                             bnc_triggered = false;
                         } else {
-                            application_flags = application_flags | FEEDER_DELIVERED;
+                            // application_flags = application_flags | FEEDER_DELIVERED;
                             application_status = application_status & ~FEEDER_DELIVERED;
                             application_status = application_status | FEEDER_PRE_LOAD;
                             application_flags = application_flags & ~FEEDER_PRE_LOAD;
-                            sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
-                            uart_message_flag = true;
-                            vTaskDelay(10);
-                            sprintf(lcd_message_str, "Del %d / %d", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
-                            lcd_message_flag = true;
-                            vTaskDelay(10);
+                            // sprintf(uart_message_str, "Delivered %d / %d attempts\n", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                            // uart_message_flag = true;
+                            // vTaskDelay(10);
+                            // sprintf(lcd_message_str, "Del %d / %d", pellet_delivered_count, pellet_delivered_count + pellet_missed_count);
+                            // lcd_message_flag = true;
+                            // vTaskDelay(10);
 
                         }
 
@@ -791,7 +841,7 @@ void vUpdateScreenTask( void * pvParameters )
                 }
                 vTaskDelay(1);
             }
-
+            lcd_message_flag = false;
 
             // for (y = 0; y < LCD_STRING_BUF_SIZE; y++) {
             //     multicore_fifo_push_blocking((uintptr_t) lcd_message_str[y]);
@@ -901,9 +951,12 @@ bool feeder_initialise() {
 
 bool feeder_pre_load_pellet() {
 
-    sprintf(uart_message_str, "Pre Loading Pellet\n");
-    uart_message_flag = true;
-    vTaskDelay(10);
+    while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+    sprintf(lcd_message_str, "Pre Load Pellet\n");
+    lcd_message_flag = true;
+    // sprintf(uart_message_str, "Pre Loading Pellet\n");
+    // uart_message_flag = true;
+    // vTaskDelay(10);
 
     speed_limit = SPEED_PRE_LOAD;
     position_setpoint = position_setpoint + ROTATION_PRE_LOAD;
@@ -926,9 +979,11 @@ bool feeder_pre_load_pellet() {
 
 bool feeder_deliver_pellet() {
 
-    sprintf(uart_message_str, "Delivering Pellet\n");
-    uart_message_flag = true;
-    vTaskDelay(10);
+    
+    while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+    sprintf(lcd_message_str, "Delivering Pellet\n");
+    lcd_message_flag = true;
+    // vTaskDelay(10);
 
     speed_limit = SPEED_DELIVER;
     // if (missed_pellet) {
@@ -938,9 +993,9 @@ bool feeder_deliver_pellet() {
     //     vTaskDelay(5);
     // } else {
         position_setpoint = position_setpoint + MAX_ROTATION_HOLE - ROTATION_PRE_LOAD + ROTATION_OVERSHOOT;
-        sprintf(uart_message_str, "MOV\n");
-        uart_message_flag = true;
-        vTaskDelay(5);
+        // sprintf(uart_message_str, "MOV\n");
+        // uart_message_flag = true;
+        // vTaskDelay(5);
     // }
     feeder_position_reached = false;
     pellet_delivered = false;
@@ -962,16 +1017,16 @@ bool feeder_deliver_pellet() {
         PIDController_Init(&pid_pos);
         PIDController_Init(&pid_vel);
         vTaskDelay(5);
-        sprintf(uart_message_str, "PD T\n");
-        uart_message_flag = true;
-        vTaskDelay(5);
+        // sprintf(uart_message_str, "PD T\n");
+        // uart_message_flag = true;
+        // vTaskDelay(5);
         pellet_delivered = false;
         missed_pellet = false;
         return true;
     } else {
         pellet_missed_count++;
-        sprintf(uart_message_str, "PD F\n");
-        uart_message_flag = true;
+        // sprintf(uart_message_str, "PD F\n");
+        // uart_message_flag = true;
         vTaskDelay(5);
         missed_pellet = true;
         return false;
