@@ -31,6 +31,7 @@ target_link_libraries(${OUTPUT_NAME}
   hardware_pio
   hardware_pwm
   pid
+  pio_quad_encoder
   )
 
 # create map/bin/hex file etc.
