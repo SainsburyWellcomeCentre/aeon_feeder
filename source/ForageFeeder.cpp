@@ -30,14 +30,35 @@
 ////////////////////////////////////////
 // Define Hardware Pins
 ////////////////////////////////////////
-#define BNC_INPUT           11
-#define PWM_OUT_ONE         2
-#define PWM_OUT_TWO         3
-#define PWM_EN              4
-#define ENC_ONE             9
-#define ENC_TWO             10
-#define BEAM_BREAK_PIN      5
-#define GREEN_LED_PIN       25
+#define PWM_OUT_ONE_PIN         2
+#define PWM_OUT_TWO_PIN         3
+#define PWM_EN_PIN              4
+#define BEAM_BREAK_PIN          5
+#define ENC_ONE_PIN             9
+#define ENC_TWO_PIN             10
+#define BNC_INPUT_PIN           11
+#define PELLET_DELIVERED_PIN    21
+#define FEEDER_FAULT_PIN        22
+#define GREEN_LED_PIN           25
+
+////////////////////////////////////////
+// Hardware Defined Pico Display 1&2
+////////////////////////////////////////
+// const uint8_t LED_R = 6;
+// const uint8_t LED_G = 7;
+// const uint8_t LED_B = 8;
+// static const uint8_t A = 12;
+// static const uint8_t B = 13;
+// static const uint8_t X = 14;
+// static const uint8_t Y = 15;
+////////////////////////////////////////
+// Hardware Defined Pimoroni SPI drivers for Pico Display 1&2
+////////////////////////////////////////
+// static const unsigned int SPI_DEFAULT_MOSI = 19;
+// static const unsigned int SPI_DEFAULT_MISO = 16;
+// static const unsigned int SPI_DEFAULT_SCK = 18;
+// static const unsigned int SPI_BG_FRONT_PWM = 20;
+// static const unsigned int SPI_BG_FRONT_CS = 17;
 
 ////////////////////////////////////////
 // Define SET Software Values
@@ -124,7 +145,7 @@ using namespace pimoroni;
 uint16_t buffer[PicoDisplay::WIDTH * PicoDisplay::HEIGHT];
 PicoDisplay pico_display(buffer);
 
-QuadEncoder quad_encoder(ENC_ONE);
+QuadEncoder quad_encoder(ENC_ONE_PIN);
 
 PIDController pid_vel = { PID_VEL_KP, PID_VEL_KI, PID_VEL_KD,
                         PID_VEL_TAU,
@@ -260,7 +281,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             case BEAM_BREAK_PIN:
                 pellet_delivered = true;
                 break;
-            case BNC_INPUT:
+            case BNC_INPUT_PIN:
                 bnc_triggered = true;
             default:
 
@@ -314,7 +335,7 @@ bool repeating_timer_callback(struct repeating_timer *t) {
 // PWM Wrap Interupt
 void on_pwm_wrap() {
 
-    pwm_clear_irq(pwm_gpio_to_slice_num(PWM_OUT_ONE));
+    pwm_clear_irq(pwm_gpio_to_slice_num(PWM_OUT_ONE_PIN));
 
     if (motor_brake) {
         set_pwm_two = 4095;
@@ -334,8 +355,8 @@ void on_pwm_wrap() {
         }
     }
 
-    pwm_set_gpio_level(PWM_OUT_ONE, set_pwm_one);
-    pwm_set_gpio_level(PWM_OUT_TWO, set_pwm_two);
+    pwm_set_gpio_level(PWM_OUT_ONE_PIN, set_pwm_one);
+    pwm_set_gpio_level(PWM_OUT_TWO_PIN, set_pwm_two);
 }
 ////////////////////////////////////////
 // CORE 0 - END
@@ -422,24 +443,30 @@ int main()
 
     gpio_init(BEAM_BREAK_PIN);
     gpio_set_dir(BEAM_BREAK_PIN, GPIO_IN);
-    gpio_init(BNC_INPUT);
-    gpio_set_dir(BNC_INPUT, GPIO_IN);
-    gpio_pull_up(BNC_INPUT);
+    gpio_init(BNC_INPUT_PIN);
+    gpio_set_dir(BNC_INPUT_PIN, GPIO_IN);
+    gpio_pull_up(BNC_INPUT_PIN);
 
 // BEAM_BREAK_PIN 
     gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
-    gpio_set_irq_enabled_with_callback(BNC_INPUT, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
 
-    gpio_init(PWM_EN);
-    gpio_set_dir(PWM_EN, GPIO_OUT);
+    gpio_init(PELLET_DELIVERED_PIN);
+    gpio_set_dir(PELLET_DELIVERED_PIN, GPIO_OUT);
 
-    gpio_set_function(PWM_OUT_ONE, GPIO_FUNC_PWM);
-    gpio_set_function(PWM_OUT_TWO, GPIO_FUNC_PWM);
+    gpio_init(FEEDER_FAULT_PIN);
+    gpio_set_dir(FEEDER_FAULT_PIN, GPIO_OUT);    
 
-    uint slice_num = pwm_gpio_to_slice_num(PWM_OUT_ONE); 
+    gpio_init(PWM_EN_PIN);
+    gpio_set_dir(PWM_EN_PIN, GPIO_OUT);
+
+    gpio_set_function(PWM_OUT_ONE_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(PWM_OUT_TWO_PIN, GPIO_FUNC_PWM);
+
+    uint slice_num = pwm_gpio_to_slice_num(PWM_OUT_ONE_PIN); 
 
     pwm_clear_irq(slice_num);
     pwm_set_irq_enabled(slice_num, true);
@@ -450,8 +477,9 @@ int main()
     pwm_config_set_wrap(&config, 4096);
     pwm_init(slice_num, &config, true);
 
-
-    gpio_put(PWM_EN, GPIO_ON);
+    gpio_put(PWM_EN_PIN, GPIO_ON);
+    gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
+    gpio_put(FEEDER_FAULT_PIN, GPIO_OFF);
 
     BaseType_t status;
 #if UART_DEBUG
@@ -591,6 +619,7 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_PRE_LOAD;
                         application_status = application_status | FEEDER_DELIVERED;
                         application_flags = application_flags & ~FEEDER_DELIVERED;
+                        gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);   // Pin goes Low here after being high from pellet delivered
                     } else {
                         // there is no case that it should get here
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
@@ -605,6 +634,7 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_DELIVERED;
                         application_status = application_status | FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
+                        gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);    // Pin goes high here and low after feeder pre-load complete
 
                         switch(i) {
                             case 1:
@@ -644,6 +674,7 @@ void vApplicationTask( void * pvParameters )
                             application_flags = application_flags & ~FEEDER_DELIVERED;
                             application_status = application_status & ~FEEDER_DELIVERED;
                             application_status = application_status | FEEDER_DELIVERY_ERROR;
+                            gpio_put(FEEDER_FAULT_PIN, GPIO_ON);    // an extra output for showing a logic feeder error - HIGH = ERROR
                             sprintf(uart_message_str, "Delivery ERROR!!\n");
                             uart_message_flag = true;
                             vTaskDelay(10);
