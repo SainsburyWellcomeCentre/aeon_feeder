@@ -694,6 +694,12 @@ void vApplicationTask( void * pvParameters )
                 break;
             case FEEDER_DELIVERY_ERROR:
                 feeder_deliver_error();
+                if (Y_flag) {
+                    application_flags = application_flags & ~FEEDER_INITIALISE;
+                    application_status = application_status & ~FEEDER_DELIVERY_ERROR;
+                    application_status = application_status | FEEDER_INITIALISE;
+                    Y_flag = false;
+                }
                 break;
             default:
                 
