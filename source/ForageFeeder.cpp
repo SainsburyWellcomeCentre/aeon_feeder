@@ -198,6 +198,7 @@ volatile bool uart_message_flag;
 volatile bool motor_brake;
 volatile bool bnc_triggered;
 volatile bool led_toggle;
+volatile bool h_bridge_start;
 
 volatile bool A_flag;
 volatile bool B_flag;
@@ -336,24 +337,29 @@ bool repeating_timer_callback(struct repeating_timer *t) {
 void on_pwm_wrap() {
 
     pwm_clear_irq(pwm_gpio_to_slice_num(PWM_OUT_ONE_PIN));
-
-    if (motor_brake) {
-        set_pwm_two = 4095;
-        set_pwm_one = 4095;
-    } else {
-        if (speed_pid_out == 0) {
-            set_pwm_two = 0;
-            set_pwm_one = 0;
-        } else if (speed_pid_out > 0) {
-            set_pwm_one = speed_pid_out;
-            if (set_pwm_one > 4095) set_pwm_one = 4095;
-            set_pwm_two = 0;
+    if (h_bridge_start) {      
+        if (motor_brake) {
+            set_pwm_two = 4095;
+            set_pwm_one = 4095;
         } else {
-            set_pwm_two = speed_pid_out*-1;
-            if (set_pwm_two > 4095) set_pwm_two = 4095;
-            set_pwm_one = 0;
+            if (speed_pid_out == 0) {
+                set_pwm_two = 0;
+                set_pwm_one = 0;
+            } else if (speed_pid_out > 0) {
+                set_pwm_one = speed_pid_out;
+                if (set_pwm_one > 4095) set_pwm_one = 4095;
+                set_pwm_two = 0;
+            } else {
+                set_pwm_two = speed_pid_out*-1;
+                if (set_pwm_two > 4095) set_pwm_two = 4095;
+                set_pwm_one = 0;
+            }
         }
+    } else {
+        set_pwm_two = 0;
+        set_pwm_one = 0;
     }
+
 
     pwm_set_gpio_level(PWM_OUT_ONE_PIN, set_pwm_one);
     pwm_set_gpio_level(PWM_OUT_TWO_PIN, set_pwm_two);
@@ -477,7 +483,7 @@ int main()
     pwm_config_set_wrap(&config, 4096);
     pwm_init(slice_num, &config, true);
 
-    gpio_put(PWM_EN_PIN, GPIO_ON);
+    gpio_put(PWM_EN_PIN, GPIO_OFF);
     gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
     gpio_put(FEEDER_FAULT_PIN, GPIO_OFF);
 
@@ -536,7 +542,7 @@ int main()
     PIDController_Init(&pid_pos);
 
     add_repeating_timer_us(-2000, repeating_timer_callback, NULL, &control_loop);
-    speed_limit = SPEED_MAX;
+    speed_limit = 0;
 
     application_status = application_status | FEEDER_INITIALISE;
 
@@ -581,6 +587,8 @@ void vApplicationTask( void * pvParameters )
         switch (application_status) {
             case FEEDER_INITIALISE:
                 if (A_flag && ((application_flags & FEEDER_INITIALISE) != FEEDER_INITIALISE)) {
+                    gpio_put(PWM_EN_PIN, GPIO_ON);
+                    h_bridge_start = true;
                     status = feeder_initialise();
                     i = 0;
                     while (!status) {
