@@ -71,14 +71,27 @@
 // #define EDGE_FALL           0x4
 // #define EDGE_RISE           0x8
 
+
+// for 24 hole feeder disk
+// #define TIME_DIF_MAX        1000u
+// #define MAX_ROTATION_TOTAL  23104u
+// #define MAX_ROTATION_HOLE   963u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
+// #define ROTATION_PRE_LOAD   800u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
+// #define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up.
+// #define SPEED_MAX           400u
+// #define SPEED_PRE_LOAD      300u
+// #define SPEED_DELIVER       400u
+// #define POSITION_MARGIN     15u
+
+// for 12 hole feeder disk
 #define TIME_DIF_MAX        1000u
 #define MAX_ROTATION_TOTAL  23104u
-#define MAX_ROTATION_HOLE   963u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
-#define ROTATION_PRE_LOAD   800u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
-#define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up.
+#define MAX_ROTATION_HOLE   1925u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
+#define ROTATION_PRE_LOAD   1750u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
+#define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up. originally was 100u
 #define SPEED_MAX           400u
-#define SPEED_PRE_LOAD      300u
-#define SPEED_DELIVER       400u
+#define SPEED_PRE_LOAD      200u
+#define SPEED_DELIVER       400u    // originally was 100u
 #define POSITION_MARGIN     15u
 
 #define LCD_STRING_BUF_SIZE     40
@@ -451,11 +464,13 @@ int main()
     gpio_set_dir(BEAM_BREAK_PIN, GPIO_IN);
     gpio_init(BNC_INPUT_PIN);
     gpio_set_dir(BNC_INPUT_PIN, GPIO_IN);
-    gpio_pull_up(BNC_INPUT_PIN);
+    // gpio_pull_up(BNC_INPUT_PIN); // original config
+    gpio_pull_down(BNC_INPUT_PIN);
 
 // BEAM_BREAK_PIN 
     gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
-    gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    // gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);  // original config
+    gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
