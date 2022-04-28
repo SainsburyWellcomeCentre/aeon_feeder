@@ -297,6 +297,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
                 break;
             case BNC_INPUT_PIN:
                 bnc_triggered = true;
+                break;
             default:
 
                 break;
@@ -465,7 +466,7 @@ int main()
     gpio_init(BNC_INPUT_PIN);
     gpio_set_dir(BNC_INPUT_PIN, GPIO_IN);
     // gpio_pull_up(BNC_INPUT_PIN); // original config
-    gpio_pull_down(BNC_INPUT_PIN);
+    // gpio_pull_down(BNC_INPUT_PIN);
 
 // BEAM_BREAK_PIN 
     gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
