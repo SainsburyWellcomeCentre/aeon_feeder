@@ -1,5 +1,2 @@
-add_subdirectory(pico_display)
-add_subdirectory(pico_graphics)
-add_subdirectory(fonts)
 add_subdirectory(pid)
 add_subdirectory(pio_quad_encoder)

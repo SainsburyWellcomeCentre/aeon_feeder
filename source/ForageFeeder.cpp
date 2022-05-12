@@ -1,8 +1,8 @@
 #include <math.h>
 #include <vector>
-// #include <string.h>
+#include <string.h>
 // #include <cstdlib>
-// #include <stdio.h>
+#include <stdio.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/pio.h"
@@ -15,9 +15,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "pico_display.hpp"
-#include "gfxfont.h"
-#include "FreeSans9pt7b.h"
+#include <tusb.h>
+
 #include "pid.h"
 // #include "pio_quad_encoder.pio.h"
 #include "pio_quad_encoder.h"
@@ -34,31 +33,14 @@
 #define PWM_OUT_TWO_PIN         3
 #define PWM_EN_PIN              4
 #define BEAM_BREAK_PIN          5
+#define GREEN_RGB_LED_PIN       6
+#define BLUE_RGB_LED_PIN        7
+#define RED_RGB_LED_PIN         8
 #define ENC_ONE_PIN             9
 #define ENC_TWO_PIN             10
 #define BNC_INPUT_PIN           11
 #define PELLET_DELIVERED_PIN    21
-#define FEEDER_FAULT_PIN        22
 #define GREEN_LED_PIN           25
-
-////////////////////////////////////////
-// Hardware Defined Pico Display 1&2
-////////////////////////////////////////
-// const uint8_t LED_R = 6;
-// const uint8_t LED_G = 7;
-// const uint8_t LED_B = 8;
-// static const uint8_t A = 12;
-// static const uint8_t B = 13;
-// static const uint8_t X = 14;
-// static const uint8_t Y = 15;
-////////////////////////////////////////
-// Hardware Defined Pimoroni SPI drivers for Pico Display 1&2
-////////////////////////////////////////
-// static const unsigned int SPI_DEFAULT_MOSI = 19;
-// static const unsigned int SPI_DEFAULT_MISO = 16;
-// static const unsigned int SPI_DEFAULT_SCK = 18;
-// static const unsigned int SPI_BG_FRONT_PWM = 20;
-// static const unsigned int SPI_BG_FRONT_CS = 17;
 
 ////////////////////////////////////////
 // Define SET Software Values
@@ -66,38 +48,28 @@
 #define GPIO_ON             1
 #define GPIO_OFF            0
 
-// #define LEVEL_LOW           0x1
-// #define LEVEL_HIGH          0x2
-// #define EDGE_FALL           0x4
-// #define EDGE_RISE           0x8
-
+#define LEVEL_LOW           0x1
+#define LEVEL_HIGH          0x2
+#define EDGE_FALL           0x4
+#define EDGE_RISE           0x8
 
 // for 24 hole feeder disk
-// #define TIME_DIF_MAX        1000u
-// #define MAX_ROTATION_TOTAL  23104u
-// #define MAX_ROTATION_HOLE   963u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
-// #define ROTATION_PRE_LOAD   800u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
-// #define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up.
-// #define SPEED_MAX           400u
-// #define SPEED_PRE_LOAD      300u
-// #define SPEED_DELIVER       400u
-// #define POSITION_MARGIN     15u
-
-// for 12 hole feeder disk
 #define TIME_DIF_MAX        1000u
 #define MAX_ROTATION_TOTAL  23104u
-#define MAX_ROTATION_HOLE   1925u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
-#define ROTATION_PRE_LOAD   1750u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
-#define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up. originally was 100u
+#define MAX_ROTATION_HOLE   963u    // 1925u basically MAX_ROTATION_TOTAL / 12 (number of holes) --- for 24 holes 963u
+#define ROTATION_PRE_LOAD   800u   // distance to travel around before stopping from the last hole to pre load a pellet was 1500u for 12 hole and 500u for 24 (initially)
+#define ROTATION_OVERSHOOT  250u    // How far to overshoot the front of the hole - gives the pellet more time to drop before a false negative is picked up.
 #define SPEED_MAX           400u
-#define SPEED_PRE_LOAD      200u
-#define SPEED_DELIVER       400u    // originally was 100u
+#define SPEED_PRE_LOAD      300u
+#define SPEED_DELIVER       400u
 #define POSITION_MARGIN     15u
 
-#define LCD_STRING_BUF_SIZE     40
 #define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
+
+#define BNC_TRIGGER_TIME_LIMIT      20u     // upper limit of 20 ms (more likely 1ms)
+#define BNC_INITIALISE_TIME_LIMIT   25u     // low limit of 25ms 
 
 ////////////////////////////////////////
 // Define Feeder Application States
@@ -153,10 +125,6 @@
 ////////////////////////////////////////
 // Define classes / structs / ints etc.
 ////////////////////////////////////////
-using namespace pimoroni;
-
-uint16_t buffer[PicoDisplay::WIDTH * PicoDisplay::HEIGHT];
-PicoDisplay pico_display(buffer);
 
 QuadEncoder quad_encoder(ENC_ONE_PIN);
 
@@ -175,11 +143,14 @@ PIDController pid_pos = { PID_POS_KP, PID_POS_KI, PID_POS_KD,
 struct repeating_timer control_loop;
 
 // Debounce control
-unsigned long time = to_ms_since_boot(get_absolute_time());
-const int delayTime =  250;
+// unsigned long time = to_ms_since_boot(get_absolute_time());
+// const int delayTime =  250;
 // block extra pellet triggers per shot - to fix pellet count
-unsigned long pellet_time = to_ms_since_boot(get_absolute_time());
-const int pellet_delay_time =  50;         // was 250ms but was missing pellets when fine tuning speed of delivery
+// unsigned long pellet_time = to_ms_since_boot(get_absolute_time());
+
+unsigned long bnc_trigger_rise_time;
+unsigned long bnc_trigger_fall_time;
+// const int pellet_delay_time =  50;         // was 250ms but was missing pellets when fine tuning speed of delivery
 
 volatile int32_t motor_position = 0;
 volatile int32_t motor_position_buf;
@@ -206,7 +177,6 @@ volatile int32_t pellet_delivered_count_6 = 0;
 volatile int32_t pellet_missed_count = 0;
 volatile int32_t pellet_delivered_msg_count = 0;
 static bool missed_pellet;
-volatile bool lcd_message_flag;
 volatile bool uart_message_flag;
 volatile bool motor_brake;
 volatile bool bnc_triggered;
@@ -226,17 +196,11 @@ divmod_result_t motor_speed_hw;
 
 // static char event_str[128];
 
-static char lcd_message_str[LCD_STRING_BUF_SIZE];
-static char lcd_message_str_core1[LCD_STRING_BUF_SIZE];
-static char lcd_message_str_core1a[LCD_STRING_BUF_SIZE];
-static char lcd_message_str_core1b[LCD_STRING_BUF_SIZE];
 static char uart_message_str[UART_STRING_BUF_SIZE];
 
 // Define FreeRTOS Task
 void vSerialDebugTask( void * pvParameters );
 void vApplicationTask( void * pvParameters );
-void vUpdateScreenTask( void * pvParameters );
-void vUserInterfaceTask( void * pvParameters );
 void vSystemMonitorTask( void * pvParameters );
 
 bool feeder_initialise(void);
@@ -254,31 +218,8 @@ bool feeder_deliver_error(void);
 // GPIO Interupt
 void gpio_callback_core_1(uint gpio, uint32_t events) {
     // irq_clear(IO_IRQ_BANK0);
-    if ((to_ms_since_boot(get_absolute_time())-time)>delayTime) {
-        time = to_ms_since_boot(get_absolute_time());
-        switch(gpio) {
-            case pico_display.A:
-                pico_display.set_led(255,0,0);
-                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-                break;
-            case pico_display.B:
-                pico_display.set_led(0,255,0);
-                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-                break;
-            case pico_display.X:
-                pico_display.set_led(0,0,255);
-                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-                break;
-            case pico_display.Y:
-                pico_display.set_led(0,0,0);
-                multicore_fifo_push_timeout_us(gpio, MULTICORE_FIFO_TIMEOUT);
-                break;
-            default:
-
-            break;
-        }
-    }
 }
+
 ////////////////////////////////////////
 // CORE 1 - END
 ////////////////////////////////////////
@@ -288,20 +229,45 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
 ////////////////////////////////////////
 // GPIO Interupt
 void gpio_callback_core_0(uint gpio, uint32_t events) {
-    
-    if ((to_ms_since_boot(get_absolute_time()) - pellet_time) > pellet_delay_time) {
-        pellet_time = to_ms_since_boot(get_absolute_time());
-        switch(gpio) {
-            case BEAM_BREAK_PIN:
-                pellet_delivered = true;
-                break;
-            case BNC_INPUT_PIN:
-                bnc_triggered = true;
-                break;
-            default:
 
-                break;
-        }
+    switch(gpio) {
+        case BEAM_BREAK_PIN:
+            switch (events) {   
+                case EDGE_RISE:
+                    gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);
+                    pellet_delivered = true;
+                    break;          
+                case EDGE_FALL:
+                    gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case BNC_INPUT_PIN:
+            switch (events) {               
+                case EDGE_FALL:
+                    bnc_trigger_fall_time = to_ms_since_boot(get_absolute_time());
+                    // gpio_put(GREEN_LED_PIN, GPIO_ON);
+                    break;
+                case EDGE_RISE:
+                    bnc_trigger_rise_time = to_ms_since_boot(get_absolute_time());
+                    // gpio_put(GREEN_LED_PIN, GPIO_OFF);
+                    if ((bnc_trigger_rise_time - bnc_trigger_fall_time) > BNC_INITIALISE_TIME_LIMIT) {
+                        application_status = FEEDER_INITIALISE;
+                        A_flag = true;
+                        gpio_put(GREEN_LED_PIN, GPIO_ON);
+                    } else if ((bnc_trigger_rise_time - bnc_trigger_fall_time) < BNC_TRIGGER_TIME_LIMIT) {
+                        bnc_triggered = true;
+                        gpio_put(GREEN_LED_PIN, GPIO_OFF);
+                    }
+                    break;
+                default:
+                    break;
+            }           
+            break;
+        default:
+            break;
     }
 
 }
@@ -387,63 +353,10 @@ void on_pwm_wrap() {
 ////////////////////////////////////////
 // SWC Base code - will run on Core 1 - START
 ////////////////////////////////////////
-void swc_base() {
+// void swc_base() {
 
-    
-    gpio_set_irq_enabled_with_callback(pico_display.A, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
-    gpio_set_irq_enabled_with_callback(pico_display.B, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
-    gpio_set_irq_enabled_with_callback(pico_display.X, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
-    gpio_set_irq_enabled_with_callback(pico_display.Y, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_1);
+// }
 
-
-    int x = 0;
-    bool message;
-
-    uint16_t white = pico_display.create_pen(255, 255, 255);
-    // uint16_t black = pico_display.create_pen(0, 0, 0);
-    // uint16_t red = pico_display.create_pen(255, 0, 0);
-    uint16_t green = pico_display.create_pen(0, 255, 0);
-    // uint16_t dark_grey = pico_display.create_pen(20, 40, 60);
-    // uint16_t dark_green = pico_display.create_pen(10, 100, 10);
-    // uint16_t blue = pico_display.create_pen(0, 0, 255);
-
-    pico_display.init();
-    pico_display.set_backlight(100);
-
-    while(true) {
-        pico_display.set_pen(0, 0, 0);
-        pico_display.clear();
-
-        x = 0;
-
-        if (multicore_fifo_rvalid()) {
-            while(x < LCD_STRING_BUF_SIZE) {
-                lcd_message_str_core1[x] = multicore_fifo_pop_blocking();
-                if (lcd_message_str_core1[0] == 0x31) {
-                    lcd_message_str_core1b[x] = lcd_message_str_core1[x];
-                } else {
-                    lcd_message_str_core1a[x] = lcd_message_str_core1[x];
-                }
-                x++;
-            }
-            message = true;
-        }
-
-
-        if (message) {
-            pico_display.set_pen(white);
-            pico_display.customFontSetFont((const pimoroni::GFXfont&)FreeSans9pt7b);
-            pico_display.text(lcd_message_str_core1a, Point(0, 30), 240, 1);
-            pico_display.set_pen(green);
-            pico_display.text(lcd_message_str_core1b, Point(0, 60), 240, 1);
-
-            pico_display.update();
-            message = false;
-        }
-
-    }
-
-}
 ////////////////////////////////////////
 // SWC Base code - will run on Core 1 - END
 ////////////////////////////////////////
@@ -453,8 +366,10 @@ void swc_base() {
 ////////////////////////////////////////
 int main() 
 {
-    multicore_launch_core1(swc_base);
+    // multicore_launch_core1(swc_base);
     stdio_init_all();
+
+    while (!tud_cdc_connected()) { sleep_ms(100);  }
 
     quad_encoder.set_rotation(0);
 
@@ -465,22 +380,25 @@ int main()
     gpio_set_dir(BEAM_BREAK_PIN, GPIO_IN);
     gpio_init(BNC_INPUT_PIN);
     gpio_set_dir(BNC_INPUT_PIN, GPIO_IN);
-    // gpio_pull_up(BNC_INPUT_PIN); // original config
+    gpio_pull_up(BNC_INPUT_PIN); // original config
     // gpio_pull_down(BNC_INPUT_PIN);
 
 // BEAM_BREAK_PIN 
-    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
-    // gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);  // original config
-    gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_RISE, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(BEAM_BREAK_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
+    gpio_set_irq_enabled_with_callback(BNC_INPUT_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_core_0);
 
     gpio_init(GREEN_LED_PIN);
     gpio_set_dir(GREEN_LED_PIN, GPIO_OUT);
+    
+    gpio_init(GREEN_RGB_LED_PIN);
+    gpio_set_dir(GREEN_RGB_LED_PIN, GPIO_OUT);
+    gpio_init(BLUE_RGB_LED_PIN);
+    gpio_set_dir(BLUE_RGB_LED_PIN, GPIO_OUT);
+    gpio_init(RED_RGB_LED_PIN);
+    gpio_set_dir(RED_RGB_LED_PIN, GPIO_OUT);
 
     gpio_init(PELLET_DELIVERED_PIN);
     gpio_set_dir(PELLET_DELIVERED_PIN, GPIO_OUT);
-
-    gpio_init(FEEDER_FAULT_PIN);
-    gpio_set_dir(FEEDER_FAULT_PIN, GPIO_OUT);    
 
     gpio_init(PWM_EN_PIN);
     gpio_set_dir(PWM_EN_PIN, GPIO_OUT);
@@ -501,15 +419,12 @@ int main()
 
     gpio_put(PWM_EN_PIN, GPIO_OFF);
     gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
-    gpio_put(FEEDER_FAULT_PIN, GPIO_OFF);
 
     BaseType_t status;
 #if UART_DEBUG
     TaskHandle_t xSerialDebugHandle = NULL;
 #endif
     TaskHandle_t xApplicationHandle = NULL;
-    TaskHandle_t xUpdateScreenHandle = NULL;
-    TaskHandle_t xUserInterfaceHandle = NULL;
     TaskHandle_t xSystemMonitorTask = NULL;
 
 #if UART_DEBUG
@@ -529,22 +444,6 @@ int main()
                   NULL,                           // Parameter passed to task
                   tskIDLE_PRIORITY + 3,           // Task Priority
                   &xApplicationHandle );  
-
-    status = xTaskCreate(
-                  vUpdateScreenTask,              // Task Function
-                  "Update Screen Task",           // Task Name
-                  256,                            // Stack size in words
-                  NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY,           // Task Priority
-                  &xUpdateScreenHandle );  
-
-    status = xTaskCreate(
-                  vUserInterfaceTask,              // Task Function
-                  "User Interface Task",           // Task Name
-                  256,                            // Stack size in words
-                  NULL,                           // Parameter passed to task
-                  tskIDLE_PRIORITY + 2,           // Task Priority
-                  &xUserInterfaceHandle ); 
 
     status = xTaskCreate(
                   vSystemMonitorTask,              // Task Function
@@ -594,16 +493,22 @@ void vApplicationTask( void * pvParameters )
     bool status;
     int i;
 
-    while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-    sprintf(lcd_message_str, "PRESS A TO INITIALISE\n");
-    lcd_message_flag = true;
+    while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
+    sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
+    uart_message_flag = true;
 
     for( ;; )
     {    
         switch (application_status) {
             case FEEDER_INITIALISE:
                 if (A_flag && ((application_flags & FEEDER_INITIALISE) != FEEDER_INITIALISE)) {
+                    while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
+                    sprintf(uart_message_str, "Starting to INITIALISE\n");
+                    uart_message_flag = true;
+
                     gpio_put(PWM_EN_PIN, GPIO_ON);
+                    vTaskDelay(10);
+
                     h_bridge_start = true;
                     status = feeder_initialise();
                     i = 0;
@@ -617,19 +522,15 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_INITIALISE;
                         application_status = application_status | FEEDER_PRE_LOAD;
                         pellet_delivered_count = 0;
+                        while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
                         sprintf(uart_message_str, "FEEDER INITIALISED\n");
                         uart_message_flag = true;
-                        while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-                        sprintf(lcd_message_str, "FEEDER INITIALISED");
-                        lcd_message_flag = true;
                         i = 1;  // going to the delivery stage, i = 1 for 1st pellet delivery attempt
                     } else {
                         application_flags = application_flags & ~FEEDER_INITIALISE;
+                        while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
                         sprintf(uart_message_str, "FEEDER INITIALISE ERROR\n");
                         uart_message_flag = true;
-                        while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-                        sprintf(lcd_message_str, "FEEDER INITIALISE ERROR");
-                        lcd_message_flag = true;
                     }
                     A_flag = false;
                     
@@ -682,12 +583,9 @@ void vApplicationTask( void * pvParameters )
                             default:
                                 break;
                         }
-                        while (uart_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
+                        while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
                         sprintf(uart_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d\n", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
                         uart_message_flag = true;
-                        while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-                        sprintf(lcd_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
-                        lcd_message_flag = true;
                         i = 1;
                         A_flag = false;
                         bnc_triggered = false;
@@ -698,13 +596,9 @@ void vApplicationTask( void * pvParameters )
                             application_flags = application_flags & ~FEEDER_DELIVERED;
                             application_status = application_status & ~FEEDER_DELIVERED;
                             application_status = application_status | FEEDER_DELIVERY_ERROR;
-                            gpio_put(FEEDER_FAULT_PIN, GPIO_ON);    // an extra output for showing a logic feeder error - HIGH = ERROR
+                            while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clearR
                             sprintf(uart_message_str, "Delivery ERROR!!\n");
                             uart_message_flag = true;
-                            vTaskDelay(10);
-                            while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-                            sprintf(lcd_message_str, "Delivery ERROR!!");
-                            lcd_message_flag = true;
                             vTaskDelay(10);
                             A_flag = false;
                             bnc_triggered = false;
@@ -732,63 +626,6 @@ void vApplicationTask( void * pvParameters )
         vTaskDelay(20);    // was 200
     }
 }
-
-void vUpdateScreenTask( void * pvParameters )
-{
-    int y;
-    bool status;
-
-    for( ;; )
-    {
-        if (lcd_message_flag) {
-            y = 0;
-            while (y < LCD_STRING_BUF_SIZE) {
-                if (multicore_fifo_wready()) {
-                    status = multicore_fifo_push_timeout_us((uintptr_t) lcd_message_str[y], 10);
-                    if (status) {
-                        y++;
-                    }
-                }
-                vTaskDelay(1);
-            }
-            lcd_message_flag = false;
-        }
-        vTaskDelay(20);
-    }
-}
-
-// change in vUserInterfaceTask below for debuging - must remove --- DO NOT FORGET GRAEME
-void vUserInterfaceTask( void * pvParameters )
-{
-    static uint32_t x = 0;
-    static bool status;
-
-    for( ;; )
-    {
-        status = multicore_fifo_pop_timeout_us(MULTICORE_FIFO_TIMEOUT, &x);
-
-        if (status){           
-            switch(x) {
-                case pico_display.A:
-                    A_flag = true;
-                    break;
-                case pico_display.B:
-                    B_flag = !B_flag;
-                    break;
-                case pico_display.X:
-                    X_flag = true;
-                    break;
-                case pico_display.Y:
-                    Y_flag = true;
-                    break;
-                default:
-
-                break;
-            }
-        }
-        vTaskDelay(50);
-    }
-}
  
 void vSystemMonitorTask( void * pvParameters )
 {
@@ -805,11 +642,9 @@ void vSystemMonitorTask( void * pvParameters )
 
 
 bool feeder_initialise() {
-
+    while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
     sprintf(uart_message_str, "INITIALISING\n");
     uart_message_flag = true;
-    sprintf(lcd_message_str, "INITIALISING");
-    lcd_message_flag = true;
     vTaskDelay(10);
 
     speed_limit = SPEED_DELIVER;
@@ -838,9 +673,9 @@ bool feeder_initialise() {
 
 bool feeder_pre_load_pellet() {
 
-    while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-    sprintf(lcd_message_str, "Pre Load Pellet\n");
-    lcd_message_flag = true;
+    while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
+    sprintf(uart_message_str, "Pre Load Pellet\n");
+    uart_message_flag = true;
 
     speed_limit = SPEED_PRE_LOAD;
     position_setpoint = position_setpoint + ROTATION_PRE_LOAD;
@@ -863,9 +698,9 @@ bool feeder_pre_load_pellet() {
 bool feeder_deliver_pellet() {
 
     
-    while (lcd_message_flag) { vTaskDelay(1);}     //wait for previous lcd message to clear
-    sprintf(lcd_message_str, "Delivering Pellet\n");
-    lcd_message_flag = true;
+    while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
+    sprintf(uart_message_str, "Delivering Pellet\n");
+    uart_message_flag = true;
 
     speed_limit = SPEED_DELIVER;
     position_setpoint = position_setpoint + MAX_ROTATION_HOLE - ROTATION_PRE_LOAD + ROTATION_OVERSHOOT;
@@ -918,38 +753,3 @@ bool feeder_deliver_error() {
     return true;
 }
 
-
-////////////////////////////////////////
-// Debug code for GPIO Interupts - START
-////////////////////////////////////////
-
-// static const char *gpio_irq_str[] = {
-//         "LEVEL_LOW",  // 0x1
-//         "LEVEL_HIGH", // 0x2
-//         "EDGE_FALL",  // 0x4
-//         "EDGE_RISE"   // 0x8
-// };
-
-// void gpio_event_string(char *buf, uint32_t events) {
-//     for (uint i = 0; i < 4; i++) {
-//         uint mask = (1 << i);
-//         if (events & mask) {
-//             // Copy this event string into the user string
-//             const char *event_str = gpio_irq_str[i];
-//             while (*event_str != '\0') {
-//                 *buf++ = *event_str++;
-//             }
-//             events &= ~mask;
-//             // If more events add ", "
-//             if (events) {
-//                 *buf++ = ',';
-//                 *buf++ = ' ';
-//             }
-//         }
-//     }
-//     *buf++ = '\0';
-// }
-
-////////////////////////////////////////
-// Debug code for GPIO Interupts - END
-////////////////////////////////////////

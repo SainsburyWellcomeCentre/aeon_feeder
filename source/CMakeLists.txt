@@ -25,7 +25,7 @@ target_include_directories(FreeRTOS PUBLIC
 # Pull in pico libraries that we need
 target_link_libraries(${OUTPUT_NAME}
   FreeRTOS
-  pico_display
+  # pico_display
   pico_stdlib
   pico_multicore
   hardware_pio
@@ -36,3 +36,7 @@ target_link_libraries(${OUTPUT_NAME}
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${OUTPUT_NAME})
+
+# enable usb output, disable uart output
+pico_enable_stdio_usb(${OUTPUT_NAME} 1)
+pico_enable_stdio_uart(${OUTPUT_NAME} 0)
