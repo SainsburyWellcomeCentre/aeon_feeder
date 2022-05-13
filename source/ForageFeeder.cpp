@@ -24,6 +24,7 @@
 ////////////////////////////////////////
 // Define Code Switches
 ////////////////////////////////////////
+#define DEBUG               1       // will need to set to 0 before lab release
 #define UART_DEBUG          1
 
 ////////////////////////////////////////
@@ -69,7 +70,9 @@
 #define MULTICORE_FIFO_TIMEOUT  1000u
 
 #define BNC_TRIGGER_TIME_LIMIT      20u     // upper limit of 20 ms (more likely 1ms)
-#define BNC_INITIALISE_TIME_LIMIT   25u     // low limit of 25ms 
+#define BNC_INITIALISE_TIME_LIMIT   25u     // low limit of 25ms
+
+#define MAX_INITIALISE_COUNT    6u
 
 ////////////////////////////////////////
 // Define Feeder Application States
@@ -167,7 +170,6 @@ static bool motor_moving;             // Flag to update screens etc.
 static bool feeder_position_reached;  // flag to set when the feeder has reached the position setpoint (within a margin set by POSITION_MARGIN)
 
 static bool pellet_delivered = false;         // Flag set when pellet gets delivered
-volatile int32_t pellet_delivered_count = 0;
 volatile int32_t pellet_delivered_count_1 = 0;
 volatile int32_t pellet_delivered_count_2 = 0;
 volatile int32_t pellet_delivered_count_3 = 0;
@@ -203,7 +205,7 @@ void vSerialDebugTask( void * pvParameters );
 void vApplicationTask( void * pvParameters );
 void vSystemMonitorTask( void * pvParameters );
 
-bool feeder_initialise(void);
+bool feeder_initialise(int attempt);
 bool feeder_pre_load_pellet(void);
 bool feeder_deliver_pellet(void);
 bool feeder_deliver_error(void);
@@ -245,16 +247,19 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             }
             break;
         case BNC_INPUT_PIN:
-            switch (events) {               
-                case EDGE_FALL:
+            switch (events) {
+                // case EDGE_FALL:      SWAP arround rise and fall due to opto-couple input not present in test setup
+                case EDGE_RISE:
                     bnc_trigger_fall_time = to_ms_since_boot(get_absolute_time());
                     // gpio_put(GREEN_LED_PIN, GPIO_ON);
                     break;
-                case EDGE_RISE:
+                case EDGE_FALL:
+                // case EDGE_RISE:
                     bnc_trigger_rise_time = to_ms_since_boot(get_absolute_time());
                     // gpio_put(GREEN_LED_PIN, GPIO_OFF);
                     if ((bnc_trigger_rise_time - bnc_trigger_fall_time) > BNC_INITIALISE_TIME_LIMIT) {
                         application_status = FEEDER_INITIALISE;
+                        application_flags = 0;
                         A_flag = true;
                         gpio_put(GREEN_LED_PIN, GPIO_ON);
                     } else if ((bnc_trigger_rise_time - bnc_trigger_fall_time) < BNC_TRIGGER_TIME_LIMIT) {
@@ -369,7 +374,9 @@ int main()
     // multicore_launch_core1(swc_base);
     stdio_init_all();
 
+#if DEBUG
     while (!tud_cdc_connected()) { sleep_ms(100);  }
+#endif
 
     quad_encoder.set_rotation(0);
 
@@ -460,6 +467,7 @@ int main()
     speed_limit = 0;
 
     application_status = application_status | FEEDER_INITIALISE;
+    application_flags = 0;
 
     vTaskStartScheduler();
 
@@ -510,18 +518,25 @@ void vApplicationTask( void * pvParameters )
                     vTaskDelay(10);
 
                     h_bridge_start = true;
-                    status = feeder_initialise();
-                    i = 0;
+                    i = 1;
+                    status = feeder_initialise(i);
+                    // i = 0;
                     while (!status) {
-                        status = feeder_initialise();
                         i++;
-                        if (i > (6 - 1)) break;
+                        status = feeder_initialise(i);
+                        // i++;
+                        if (i > MAX_INITIALISE_COUNT) break;
                     }
                     if (status) {
                         application_flags = application_flags | FEEDER_INITIALISE;
                         application_status = application_status & ~FEEDER_INITIALISE;
                         application_status = application_status | FEEDER_PRE_LOAD;
-                        pellet_delivered_count = 0;
+                        pellet_delivered_count_1 = 0;
+                        pellet_delivered_count_2 = 0;
+                        pellet_delivered_count_3 = 0;
+                        pellet_delivered_count_4 = 0;
+                        pellet_delivered_count_5 = 0;
+                        pellet_delivered_count_6 = 0;
                         while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
                         sprintf(uart_message_str, "FEEDER INITIALISED\n");
                         uart_message_flag = true;
@@ -544,7 +559,8 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_PRE_LOAD;
                         application_status = application_status | FEEDER_DELIVERED;
                         application_flags = application_flags & ~FEEDER_DELIVERED;
-                        gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);   // Pin goes Low here after being high from pellet delivered
+                        // gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);   // Pin goes Low here after being high from pellet delivered
+                        // above handled by GPIO interupt for pulse width
                     } else {
                         // there is no case that it should get here
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
@@ -559,7 +575,8 @@ void vApplicationTask( void * pvParameters )
                         application_status = application_status & ~FEEDER_DELIVERED;
                         application_status = application_status | FEEDER_PRE_LOAD;
                         application_flags = application_flags & ~FEEDER_PRE_LOAD;
-                        gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);    // Pin goes high here and low after feeder pre-load complete
+                        // gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);    // Pin goes high here and low after feeder pre-load complete
+                        // Above done by interrupt now
 
                         switch(i) {
                             case 1:
@@ -641,9 +658,10 @@ void vSystemMonitorTask( void * pvParameters )
 ////////////////////////////////////////
 
 
-bool feeder_initialise() {
+bool feeder_initialise(int attempt) {
     while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
-    sprintf(uart_message_str, "INITIALISING\n");
+    // sprintf(uart_message_str, "INITIALISING %d\n", attempt);
+    sprintf(uart_message_str, "INITIALISING attempt %d\n", attempt);
     uart_message_flag = true;
     vTaskDelay(10);
 
