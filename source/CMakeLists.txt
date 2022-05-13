@@ -26,6 +26,7 @@ target_include_directories(FreeRTOS PUBLIC
 target_link_libraries(${OUTPUT_NAME}
   FreeRTOS
   # pico_display
+  pico_unique_id
   pico_stdlib
   pico_multicore
   hardware_pio

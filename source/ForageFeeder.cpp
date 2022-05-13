@@ -16,6 +16,7 @@
 #include "task.h"
 
 #include <tusb.h>
+#include "pico/unique_id.h"
 
 #include "pid.h"
 // #include "pio_quad_encoder.pio.h"
@@ -397,6 +398,7 @@ void on_pwm_wrap() {
 ////////////////////////////////////////
 int main() 
 {
+    pico_unique_board_id_t id_out;
     // multicore_launch_core1(swc_base);
     stdio_init_all();
 
@@ -406,7 +408,9 @@ int main()
 
     quad_encoder.set_rotation(0);
 
-    sprintf(uart_message_str, "SWC Underground Feeder\n");
+    pico_get_unique_board_id(&id_out);
+
+    sprintf(uart_message_str, "SWC Underground Feeder\nBoard ID = %llx\n", *((uint64_t*)(id_out.id)));
     uart_message_flag = true;
 
     gpio_init(BEAM_BREAK_PIN);
