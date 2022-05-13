@@ -176,7 +176,6 @@ volatile int32_t pellet_delivered_count_3 = 0;
 volatile int32_t pellet_delivered_count_4 = 0;
 volatile int32_t pellet_delivered_count_5 = 0;
 volatile int32_t pellet_delivered_count_6 = 0;
-volatile int32_t pellet_missed_count = 0;
 volatile int32_t pellet_delivered_msg_count = 0;
 static bool missed_pellet;
 volatile bool uart_message_flag;
@@ -607,14 +606,13 @@ void vApplicationTask( void * pvParameters )
                         A_flag = false;
                         bnc_triggered = false;
                     } else {
-                        i++;
-                        if (i > 6) {
+                        if (i >= 6) {
                             application_flags = application_flags & ~FEEDER_PRE_LOAD;
                             application_flags = application_flags & ~FEEDER_DELIVERED;
                             application_status = application_status & ~FEEDER_DELIVERED;
                             application_status = application_status | FEEDER_DELIVERY_ERROR;
                             while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clearR
-                            sprintf(uart_message_str, "Delivery ERROR!!\n");
+                            sprintf(uart_message_str, "Delivery %d Failed\nDelivery ERROR!!\n",i);
                             uart_message_flag = true;
                             vTaskDelay(10);
                             A_flag = false;
@@ -623,7 +621,13 @@ void vApplicationTask( void * pvParameters )
                             application_status = application_status & ~FEEDER_DELIVERED;
                             application_status = application_status | FEEDER_PRE_LOAD;
                             application_flags = application_flags & ~FEEDER_PRE_LOAD;
+                            while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
+                            sprintf(uart_message_str, "Delivery %d Failed\n",i);
+                            uart_message_flag = true;
+                            A_flag = false;
+                            bnc_triggered = false;
                         }
+                        i++;
                     }    
                 }
                 break;
@@ -745,7 +749,6 @@ bool feeder_deliver_pellet() {
         missed_pellet = false;
         return true;
     } else {
-        pellet_missed_count++;
         // vTaskDelay(5);
         missed_pellet = true;
         return false;
