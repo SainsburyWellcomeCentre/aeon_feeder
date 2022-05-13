@@ -49,6 +49,9 @@
 #define GPIO_ON             1
 #define GPIO_OFF            0
 
+#define RGB_ON              0
+#define RGB_OFF             1
+
 #define LEVEL_LOW           0x1
 #define LEVEL_HIGH          0x2
 #define EDGE_FALL           0x4
@@ -170,6 +173,7 @@ static bool motor_moving;             // Flag to update screens etc.
 static bool feeder_position_reached;  // flag to set when the feeder has reached the position setpoint (within a margin set by POSITION_MARGIN)
 
 static bool pellet_delivered = false;         // Flag set when pellet gets delivered
+static bool pellet_delivered_led = false;
 volatile int32_t pellet_delivered_count_1 = 0;
 volatile int32_t pellet_delivered_count_2 = 0;
 volatile int32_t pellet_delivered_count_3 = 0;
@@ -228,6 +232,25 @@ void gpio_callback_core_1(uint gpio, uint32_t events) {
 ////////////////////////////////////////
 // CORE 0 - START
 ////////////////////////////////////////
+// Alarm callbacks
+
+int64_t green_led_callback(alarm_id_t id, void *user_data) {
+    gpio_put(GREEN_RGB_LED_PIN, RGB_OFF);
+    gpio_put(RED_RGB_LED_PIN, RGB_ON);
+    return 0;
+}
+
+int64_t amber_led_callback(alarm_id_t id, void *user_data) {
+    gpio_put(GREEN_LED_PIN, GPIO_OFF);
+    if (pellet_delivered_led) {
+        add_alarm_in_ms(200, green_led_callback, NULL, false);
+        gpio_put(RED_RGB_LED_PIN, RGB_OFF);
+        pellet_delivered_led = false;
+    } else {
+        gpio_put(GREEN_RGB_LED_PIN, RGB_OFF);
+    }
+    return 0;
+}
 // GPIO Interupt
 void gpio_callback_core_0(uint gpio, uint32_t events) {
 
@@ -237,6 +260,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
                 case EDGE_RISE:
                     gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);
                     pellet_delivered = true;
+                    pellet_delivered_led = true;
                     break;          
                 case EDGE_FALL:
                     gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
@@ -260,10 +284,12 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
                         application_status = FEEDER_INITIALISE;
                         application_flags = 0;
                         A_flag = true;
-                        gpio_put(GREEN_LED_PIN, GPIO_ON);
+                        // gpio_put(GREEN_LED_PIN, GPIO_ON);
                     } else if ((bnc_trigger_rise_time - bnc_trigger_fall_time) < BNC_TRIGGER_TIME_LIMIT) {
                         bnc_triggered = true;
-                        gpio_put(GREEN_LED_PIN, GPIO_OFF);
+                        add_alarm_in_ms(200, amber_led_callback, NULL, false);
+                        gpio_put(GREEN_RGB_LED_PIN, RGB_ON);
+                        gpio_put(GREEN_LED_PIN, GPIO_ON);
                     }
                     break;
                 default:
@@ -348,6 +374,7 @@ void on_pwm_wrap() {
     pwm_set_gpio_level(PWM_OUT_ONE_PIN, set_pwm_one);
     pwm_set_gpio_level(PWM_OUT_TWO_PIN, set_pwm_two);
 }
+
 ////////////////////////////////////////
 // CORE 0 - END
 ////////////////////////////////////////
@@ -425,6 +452,10 @@ int main()
 
     gpio_put(PWM_EN_PIN, GPIO_OFF);
     gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
+    gpio_put(GREEN_LED_PIN, GPIO_OFF);
+    gpio_put(RED_RGB_LED_PIN, RGB_ON);
+    gpio_put(GREEN_RGB_LED_PIN, RGB_OFF);
+    gpio_put(BLUE_RGB_LED_PIN, RGB_OFF);
 
     BaseType_t status;
 #if UART_DEBUG
@@ -501,7 +532,7 @@ void vApplicationTask( void * pvParameters )
     int i;
 
     while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
-    sprintf(uart_message_str, "PRESS A TO INITIALISE\n");
+    sprintf(uart_message_str, "LONG PULSE TO INITIALISE\n");
     uart_message_flag = true;
 
     for( ;; )
