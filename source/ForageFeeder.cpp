@@ -25,7 +25,7 @@
 ////////////////////////////////////////
 // Define Code Switches
 ////////////////////////////////////////
-#define DEBUG               1       // will need to set to 0 before lab release
+#define WAIT_USB            1       // set to 0 disable waiting for USB
 #define UART_DEBUG          1
 
 ////////////////////////////////////////
@@ -74,7 +74,7 @@
 // #define SPEED_PRE_LOAD      50u
 // #define SPEED_DELIVER       100u
 
-
+#define USB_WAIT_TIME           100u     // 10 seconds (100 * 0.1ms)
 #define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
@@ -278,13 +278,13 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             break;
         case BNC_INPUT_PIN:
             switch (events) {
-                // case EDGE_FALL:      // SWAP arround rise and fall due to opto-couple input not present in test setup
-                case EDGE_RISE:
+                case EDGE_FALL:      // Lab Unit
+                // case EDGE_RISE:         // Bench Prototype
                     bnc_trigger_fall_time = to_ms_since_boot(get_absolute_time());
                     // gpio_put(GREEN_LED_PIN, GPIO_ON);
                     break;
-                case EDGE_FALL:
-                // case EDGE_RISE:
+                case EDGE_RISE:      // Lab Unit
+                // case EDGE_FALL:         // Bench Prototype
                     bnc_trigger_rise_time = to_ms_since_boot(get_absolute_time());
                     // gpio_put(GREEN_LED_PIN, GPIO_OFF);
                     if ((bnc_trigger_rise_time - bnc_trigger_fall_time) > BNC_INITIALISE_TIME_LIMIT) {
@@ -408,12 +408,18 @@ void on_pwm_wrap() {
 ////////////////////////////////////////
 int main() 
 {
+    u_int16_t usb_timeout_count = 0;
+
     pico_unique_board_id_t id_out;
     // multicore_launch_core1(swc_base);
     stdio_init_all();
 
-#if DEBUG
-    while (!tud_cdc_connected()) { sleep_ms(100);  }
+#if WAIT_USB
+    while (!tud_cdc_connected() && usb_timeout_count < USB_WAIT_TIME)
+    {
+        usb_timeout_count++;
+        sleep_ms(100); 
+    }
 #endif
 
     quad_encoder.set_rotation(0);
