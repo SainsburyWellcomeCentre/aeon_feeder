@@ -69,6 +69,12 @@
 #define SPEED_DELIVER       400u
 #define POSITION_MARGIN     15u
 
+
+// #define SPEED_MAX           100u
+// #define SPEED_PRE_LOAD      50u
+// #define SPEED_DELIVER       100u
+
+
 #define UART_STRING_BUF_SIZE    40
 
 #define MULTICORE_FIFO_TIMEOUT  1000u
@@ -272,7 +278,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
             break;
         case BNC_INPUT_PIN:
             switch (events) {
-                // case EDGE_FALL:      SWAP arround rise and fall due to opto-couple input not present in test setup
+                // case EDGE_FALL:      // SWAP arround rise and fall due to opto-couple input not present in test setup
                 case EDGE_RISE:
                     bnc_trigger_fall_time = to_ms_since_boot(get_absolute_time());
                     // gpio_put(GREEN_LED_PIN, GPIO_ON);
@@ -308,8 +314,10 @@ bool repeating_timer_callback(struct repeating_timer *t) {
     static uint32_t r_d;                        // Change in position
     static uint64_t t_d;                        // Change in time
 
+    // motor_position = quad_encoder.get_rotation();
     motor_position = quad_encoder.get_rotation();
     r_d = motor_position - motor_position_old;
+    // r_d = motor_position_old - motor_position;
     r_d = r_d<<16;                              // shifting the quad encoder step counts to facilitate the division without floating point calcs
 
     if (motor_position != motor_position_old) {
@@ -374,6 +382,8 @@ void on_pwm_wrap() {
 
     pwm_set_gpio_level(PWM_OUT_ONE_PIN, set_pwm_one);
     pwm_set_gpio_level(PWM_OUT_TWO_PIN, set_pwm_two);
+    // pwm_set_gpio_level(PWM_OUT_ONE_PIN, set_pwm_two);
+    // pwm_set_gpio_level(PWM_OUT_TWO_PIN, set_pwm_one);
 }
 
 ////////////////////////////////////////
@@ -551,7 +561,15 @@ void vApplicationTask( void * pvParameters )
                     gpio_put(PWM_EN_PIN, GPIO_ON);
                     vTaskDelay(10);
 
+                    speed_limit = 0;
+                    quad_encoder.set_rotation(0);
+                    position_setpoint = 0;
+                    PIDController_Init(&pid_pos);
+                    PIDController_Init(&pid_vel);
+                    vTaskDelay(5);
                     h_bridge_start = true;
+
+
                     i = 1;
                     status = feeder_initialise(i);
                     // i = 0;
