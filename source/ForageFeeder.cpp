@@ -550,6 +550,7 @@ void vApplicationTask( void * pvParameters )
 {
     bool status;
     int i;
+    uint8_t delay_count;
 
     while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
     sprintf(uart_message_str, "LONG PULSE TO INITIALISE\n");
@@ -626,7 +627,8 @@ void vApplicationTask( void * pvParameters )
                     break;
                 }
             case FEEDER_DELIVERED:
-                if ((A_flag || B_flag || bnc_triggered) && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
+                // if ((A_flag || B_flag || bnc_triggered) && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
+                if ((bnc_triggered) && ((application_flags & FEEDER_DELIVERED) != FEEDER_DELIVERED)) {
                     status = feeder_deliver_pellet();
                     if (status) {
                         application_flags = application_flags | FEEDER_DELIVERED;
@@ -662,7 +664,7 @@ void vApplicationTask( void * pvParameters )
                         sprintf(uart_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d\n", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
                         uart_message_flag = true;
                         i = 1;
-                        A_flag = false;
+                        // A_flag = false;
                         bnc_triggered = false;
                     } else {
                         if (i >= 6) {
@@ -674,7 +676,7 @@ void vApplicationTask( void * pvParameters )
                             sprintf(uart_message_str, "Delivery %d Failed\nDelivery ERROR!!\n",i);
                             uart_message_flag = true;
                             vTaskDelay(10);
-                            A_flag = false;
+                            // A_flag = false;
                             bnc_triggered = false;
                         } else {
                             application_status = application_status & ~FEEDER_DELIVERED;
@@ -683,7 +685,7 @@ void vApplicationTask( void * pvParameters )
                             while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
                             sprintf(uart_message_str, "Delivery %d Failed\n",i);
                             uart_message_flag = true;
-                            A_flag = false;
+                            // A_flag = false;
                             bnc_triggered = false;
                         }
                         i++;
@@ -703,7 +705,12 @@ void vApplicationTask( void * pvParameters )
                 
                 break;            
         }
-        vTaskDelay(20);    // was 200
+        delay_count = 0;
+        while (!bnc_triggered && !A_flag && (delay_count <= 20)) {
+            delay_count++;
+            vTaskDelay(1);
+        }
+        // vTaskDelay(20);    // was 200
     }
 }
  
