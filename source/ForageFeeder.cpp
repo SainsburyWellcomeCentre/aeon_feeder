@@ -82,7 +82,7 @@
 #define BNC_TRIGGER_TIME_LIMIT      20u     // upper limit of 20 ms (more likely 1ms)
 #define BNC_INITIALISE_TIME_LIMIT   25u     // low limit of 25ms
 
-#define MAX_INITIALISE_COUNT    6u
+#define MAX_INITIALISE_COUNT    12u          // was 6 originally but increased to 12
 
 ////////////////////////////////////////
 // Define Feeder Application States
@@ -661,13 +661,13 @@ void vApplicationTask( void * pvParameters )
                                 break;
                         }
                         while (uart_message_flag) { vTaskDelay(1);}     //wait for previous uart message to clear
-                        sprintf(uart_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6:%d\n", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
+                        sprintf(uart_message_str, "1:%d  2:%d  3: %d  4:%d  5:%d  6+:%d\n", pellet_delivered_count_1, pellet_delivered_count_2, pellet_delivered_count_3, pellet_delivered_count_4, pellet_delivered_count_5, pellet_delivered_count_6);
                         uart_message_flag = true;
                         i = 1;
                         // A_flag = false;
                         bnc_triggered = false;
                     } else {
-                        if (i >= 6) {
+                        if (i > 6) {        // THIS CODE SHOULD NEVER RUN NOW - CONTROLLED EXTERNALY BY BONSAI
                             application_flags = application_flags & ~FEEDER_PRE_LOAD;
                             application_flags = application_flags & ~FEEDER_DELIVERED;
                             application_status = application_status & ~FEEDER_DELIVERED;
@@ -689,6 +689,7 @@ void vApplicationTask( void * pvParameters )
                             bnc_triggered = false;
                         }
                         i++;
+                        if (i > 6) i = 6;
                     }    
                 }
                 break;
