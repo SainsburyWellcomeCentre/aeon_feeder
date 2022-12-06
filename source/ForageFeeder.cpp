@@ -180,6 +180,7 @@ static bool motor_moving;             // Flag to update screens etc.
 static bool feeder_position_reached;  // flag to set when the feeder has reached the position setpoint (within a margin set by POSITION_MARGIN)
 
 static bool pellet_delivered = false;         // Flag set when pellet gets delivered
+static bool pellet_delivered_int = false;         // Flag set when pellet gets delivered
 static bool pellet_delivered_led = false;
 volatile int32_t pellet_delivered_count_1 = 0;
 volatile int32_t pellet_delivered_count_2 = 0;
@@ -268,6 +269,7 @@ void gpio_callback_core_0(uint gpio, uint32_t events) {
                     gpio_put(PELLET_DELIVERED_PIN, GPIO_ON);
                     pellet_delivered = true;
                     pellet_delivered_led = true;
+                    pellet_delivered_int = true;
                     break;          
                 case EDGE_FALL:
                     gpio_put(PELLET_DELIVERED_PIN, GPIO_OFF);
@@ -805,13 +807,14 @@ bool feeder_deliver_pellet() {
 
     vTaskDelay(10);
 
-    if (pellet_delivered) {
+    if (pellet_delivered_int) {
         speed_limit = 0;
         quad_encoder.set_rotation(0);
         position_setpoint = 0;
         PIDController_Init(&pid_pos);
         PIDController_Init(&pid_vel);
         // vTaskDelay(5);
+        pellet_delivered_int = false;
         pellet_delivered = false;
         missed_pellet = false;
         return true;
