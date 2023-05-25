@@ -1,0 +1,19 @@
+Altium Designer Pick and Place Locations
+C:\Users\Graeme\AppData\Local\TempReleases\Snapshot\1\Assembly\Assembly Outputs\Pick Place for AEON.Feeder.BeamBreak.csv
+
+========================================================================================================================
+File Design Information:
+
+Date:       25/05/23
+Time:       15:40
+Revision:   Not in VersionControl
+Variant:    No variations
+Units used: mm
+
+"Designator","Comment","Layer","Footprint","Center-X(mm)","Center-Y(mm)","Rotation","Description"
+"C1","C0603-100nF-100V-10%-X7R","TopLayer","FP-GRM188-0_1-e0_2_0_5-IPC_B","5.8000","11.5000","270","0.1µF ±10% 100V Ceramic Capacitor X7R 0603 (1608 Metric)"
+"R2","R0603-6k8-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","5.4000","7.7000","90","Surface Mount Resistor 6.8k Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R1","RES 0805 200R 0.1% 125mW","TopLayer","RES_ERA6A_0805_PAN","5.4000","15.3000","270","RES 0805 200 Ohm 0.1% 1/8W ±10ppm/°C Thin Film"
+"J1","53398-0471","TopLayer","FP-533980471-MFG","2.9250","11.5000","90","Board Connector, 4 Contact(s), 1 Row(s), Male, Straight, 0.049 inch Pitch, Surface Mount Terminal, Locking, Natural Insulator, Receptacle"
+"Q1","PT480FE0000F","BottomLayer","PT480_5.8","3.2000","5.4000","180","SHARP PT480FE0000F PHOTOTRANSISTOR"
+"LED1","GL480E00000F","BottomLayer","GL480_5.8mm","3.2000","17.6000","0","EMITTER IR 950NM 50MA RADIAL"

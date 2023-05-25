@@ -1,0 +1,46 @@
+Altium Designer Pick and Place Locations
+C:\Users\Graeme\AppData\Local\TempReleases\Snapshot\1\Assembly\Assembly Outputs\Pick Place for AEON.Feeder.ApplicationBoard.csv
+
+========================================================================================================================
+File Design Information:
+
+Date:       25/05/23
+Time:       15:37
+Revision:   Not in VersionControl
+Variant:    No variations
+Units used: mm
+
+"Designator","Comment","Layer","Footprint","Center-X(mm)","Center-Y(mm)","Rotation","Description"
+"R11","R0603-470R-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","51.5000","28.0000","180","Surface Mount Resistor 470 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R10","R0603-560R-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","51.5000","26.0000","180","Surface Mount Resistor 560 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R9","R0603-1k5-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","51.5000","24.0000","180","Surface Mount Resistor 1k5 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"U3","TPSM5601R5HRDAR","BottomLayer","IC_TPSM5601R5HRDAR","20.0000","39.5050","0","60-V input, 1-V to 16-V output, 1.5-A power module in enhanced HotRod™ QFN package 15-B3QFN -40 to 125"
+"R8","R0603-2k49-1/16W-0.1%","BottomLayer","FP-CPF0603-IPC_B","25.5000","40.5000","180","Surface Mount Resistor 2.49k Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R7","R0603-10k-1/16W-0.1%","BottomLayer","FP-CPF0603-IPC_B","25.5000","42.0000","0","Surface Mount Resistor 10k Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R6","R0603-100k-1/16W-0.1%","BottomLayer","FP-CPF0603-IPC_B","25.5000","38.5000","0","Surface Mount Resistor 100k Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"Q1","FDMC8030","BottomLayer","TRANS_FDMC8030","22.2000","22.6750","0","ON SEMICONDUCTOR - FDMC8030 - Dual MOSFET, Dual N Channel, 12 A, 40 V, 0.008 ohm, 10 V, 1.5 V"
+"D1","MM3Z10VB","BottomLayer","SODFL250X100-2N","21.5000","18.5000","0","DIODE ZENER 10V 200MW SOD323F"
+"C8","C1210-47uF-10V-10%-X7R","BottomLayer","FP-GRM32E-0_3-0_2-IPC_B","22.5000","44.5000","0","47uF ±10% 10V Ceramic Capacitor X7R 1210 (3225 Metric)"
+"C7","C1210-47uF-10V-10%-X7R","BottomLayer","FP-GRM32E-0_3-0_2-IPC_B","17.5000","44.5000","180","47uF ±10% 10V Ceramic Capacitor X7R 1210 (3225 Metric)"
+"C6","C0603-100nF-100V-10%-X7R","BottomLayer","FP-GRM188-0_1-e0_2_0_5-IPC_B","18.5000","33.0000","180","0.1µF ±10% 100V Ceramic Capacitor X7R 0603 (1608 Metric)"
+"C5","C0805-1uF-50V-10%-X7R","BottomLayer","CAPC0805(2012)130_N","18.5000","35.0000","180","1uF ±10% 50V Ceramic Capacitor X7R 0805 (2012 Metric)"
+"C4","C1210-10uF-50V-10%-X7R","BottomLayer","CAPC3225X279X50NL20T25","22.5000","34.5000","0","10uF ±10% 50V Ceramic Capacitor X7R 1210 (3225 Metric)"
+"U2","TPD3E001DRLR","TopLayer","DRL5_TEX","42.5000","12.5000","270","Low-Capacitance 3-Channel +/-15KV ESD-Protection Array for High-Speed Data Interfaces 5-SOT-5X3"
+"U1","TLP2368","TopLayer","5pin_SO6_TOS","36.0000","10.5000","90","TOSHIBA         TLP2368(E(O             Digital Output Optocoupler, Open Collector, 1 Channel, SOIC, 5 Pins, 3.75 kV, 20 Mbaud"
+"R4","R0603-2k7-1/16W-0.1%","BottomLayer","FP-CPF0603-IPC_B","19.7500","20.5000","180","Surface Mount Resistor 2k7 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R3","R0603-360R-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","32.0000","13.5000","90","Surface Mount Resistor 360 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R2","R0603-270R-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","32.0000","8.0000","90","Surface Mount Resistor 270 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"R1","R0603-150R-1/16W-0.1%","TopLayer","FP-CPF0603-IPC_B","43.0000","16.0000","270","Surface Mount Resistor 150 Ohm 1/16 W 0.1% 0603 (1608 Metric)"
+"C3","C0603-100nF-100V-10%-X7R","TopLayer","FP-GRM188-0_1-e0_2_0_5-IPC_B","36.0000","16.5000","180","0.1µF ±10% 100V Ceramic Capacitor X7R 0603 (1608 Metric)"
+"C2","C0603-100nF-100V-10%-X7R","TopLayer","FP-GRM188-0_1-e0_2_0_5-IPC_B","40.0000","12.5000","270","0.1µF ±10% 100V Ceramic Capacitor X7R 0603 (1608 Metric)"
+"C1","CPOLD-10uF-50V-20%-Alu","BottomLayer","CAP_EEEFK1H100P","19.0000","28.5000","0","10µF ±20% 50V SMD Aluminum Electrolytic Capacitor Surface Mount D"
+"LED2","MSL0601RGBU1","TopLayer","LED_MSL06_ROM","56.8000","25.6625","90","Triple Color LED, Red/green/blue, Milky White"
+"J8","694108105102","BottomLayer","WE_694108105102","15.9500","9.7537","0","DC Power Connectors WR-DC PwrJk CtrPnSMT Right Angled W/Peg"
+"J7","53261-0471","TopLayer","MOLEX_53261-0471","20.0000","47.3560","180","MOLEX 1.25mm (.049") Pitch PicoBlade Header, Surface Mount, Right Angle, Lead-free, 4 Circuits"
+"J6","1-1337541-0","TopLayer","TE-_1-1337541-0","9.0000","35.3250","0","TE CONNECTIVITY / GREENPAR         1-1337541-0            RF / Coaxial Connector, BNC Coaxial, Straight Jack, Solder, 50 ohm, Brass"
+"J5","1-1337541-0","TopLayer","TE-_1-1337541-0","9.0000","16.0000","0","TE CONNECTIVITY / GREENPAR         1-1337541-0            RF / Coaxial Connector, BNC Coaxial, Straight Jack, Solder, 50 ohm, Brass"
+"J4","TST-103-04-x-D-RA","TopLayer","SAMTEC_TST-103-04-G-D-RA","37.7750","40.5550","0","Board Connector, 6 Contact(s), 2 Row(s), Male, Right Angle, Solder Terminal"
+"J3","53398-0471","BottomLayer","FP-533980471-MFG","37.5000","47.8750","180","Board Connector, 4 Contact(s), 1 Row(s), Male, Straight, 0.049 inch Pitch, Surface Mount Terminal, Locking, Natural Insulator, Receptacle"
+"M1","MIKROE-2699","BottomLayer","MIKROE-M","37.7650","12.9550","180","DRV8701 Brushed DC Motor Full-Bridge Gate DC Motor Driver 5 Click Add-On Board"
+"J2","SSW-120-01-x-S - 21-40","TopLayer","SAMTEC_SSW-120-01-G-S_-_21-40","46.6550","25.6550","90","Conn Socket Strip SKT 20 POS 2.54mm Solder ST Thru-Hole (pins 21 - 40)"
+"J1","SSW-120-01-x-S","TopLayer","SAMTEC_SSW-120-01-G-S","28.8750","25.6550","270","Conn Socket Strip SKT 20 POS 2.54mm Solder ST Thru-Hole"

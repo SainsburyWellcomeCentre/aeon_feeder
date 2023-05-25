@@ -1,0 +1,12 @@
+DRC Rules Export File for PCB: C:\Users\Graeme\AppData\Local\TempReleases\Snapshot\1\AEON.Feeder.BeamBreak.PcbDoc
+RuleKind=MinimumAnnularRing|RuleName=MinimumAnnularRing|Scope=Board|Minimum=3.94
+RuleKind=MinimumAnnularRing|RuleName=MinimumAnnularRing_VIA|Scope=Board|Minimum=2.95
+RuleKind=ShortCircuit|RuleName=ShortCircuit|Scope=Board|Allowed=0
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion|Scope=Board|Minimum=0.00
+RuleKind=SolderMaskExpansion|RuleName=SolderMaskExpansion_Vias|Scope=Board|Minimum=0.00
+RuleKind=Width|RuleName=Width|Scope=Board|Minimum=5.00
+RuleKind=Width|RuleName=Width_PowerNets|Scope=Board|Minimum=8.00
+RuleKind=Clearance|RuleName=Clearance - Int2|Scope=Board|Minimum=5.98
+RuleKind=Clearance|RuleName=Clearance - Int1|Scope=Board|Minimum=5.98
+RuleKind=Clearance|RuleName=Clearance - Bottom|Scope=Board|Minimum=5.00
+RuleKind=Clearance|RuleName=Clearance - Top|Scope=Board|Minimum=7.87

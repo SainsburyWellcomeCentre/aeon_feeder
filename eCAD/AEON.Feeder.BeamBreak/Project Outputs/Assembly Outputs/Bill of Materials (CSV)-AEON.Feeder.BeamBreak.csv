@@ -1,0 +1,8 @@
+Comment,Description,Designator,Quantity
+
+"C0603-100nF-100V-10%-X7R","0.1µF ±10% 100V Ceramic Capacitor X7R 0603 (1608 Metric)","C1","1"
+"53398-0471","Board Connector, 4 Contact(s), 1 Row(s), Male, Straight, 0.049 inch Pitch, Surface Mount Terminal, Locking, Natural Insulator, Receptacle","J1","1"
+"GL480E00000F","EMITTER IR 950NM 50MA RADIAL","LED1","1"
+"PT480FE0000F","SHARP PT480FE0000F PHOTOTRANSISTOR","Q1","1"
+"RES 0805 200R 0.1% 125mW","RES 0805 200 Ohm 0.1% 1/8W ±10ppm/°C Thin Film","R1","1"
+"R0603-6k8-1/16W-0.1%","Surface Mount Resistor 6.8k Ohm 1/16 W 0.1% 0603 (1608 Metric)","R2","1"
