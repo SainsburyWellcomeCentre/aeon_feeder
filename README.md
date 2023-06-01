@@ -18,6 +18,8 @@ This will ensure Inventor is using the correct Project file to correctly find an
 
 The project can be opened from any location where the user has chosen to pull the whole project.
 
+The main assebly for the complete model is **AEON.Feeder._Main.iam**
+
 ## Notes
 The required software for the project is as follows
 * Microsoft Visual Studio and Raspberry Pi Pico SDK as setup within the [Getting Started with Pico](https://datasheets.raspberrypi.com/pico/getting-started-with-pico.pdf)
