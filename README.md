@@ -18,7 +18,7 @@ This will ensure Inventor is using the correct Project file to correctly find an
 
 The project can be opened from any location where the user has chosen to pull the whole project.
 
-The main assebly for the complete model is **AEON.Feeder._Main.iam**
+The main assembly for the complete model is **AEON.Feeder._Main.iam**
 
 ## Notes
 The required software for the project is as follows
