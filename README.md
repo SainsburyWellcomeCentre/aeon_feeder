@@ -25,3 +25,11 @@ The required software for the project is as follows
 * Microsoft Visual Studio and Raspberry Pi Pico SDK as setup within the [Getting Started with Pico](https://datasheets.raspberrypi.com/pico/getting-started-with-pico.pdf)
 * Altium Designer 23.5 or newer. Academic licenses can be obtained by contacting [Altium Education](https://www.altium.com/education/)
 * Inventor Pro 2023 or newer. Academic licenses can be obtained by contacting [Autodesk Education](https://www.autodesk.com/education/home)
+
+## Citation Policy
+
+If you use this software or hardware, please cite it as below:
+
+Sainsbury Wellcome Centre Foraging Behaviour Working Group. (2023). Aeon: An open-source platform to study the neural basis of ethological behaviours over naturalistic timescales,  https://doi.org/10.5281/zenodo.8413142
+
+[![DOI](https://zenodo.org/badge/485512362.svg)](https://zenodo.org/badge/latestdoi/485512362)
