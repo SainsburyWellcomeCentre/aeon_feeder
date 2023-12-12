@@ -3,6 +3,8 @@ Complete project repository for the underground feeder used in project Aeon.
 ## Folder Structure
 ### Code
 This folder contains the VS Code project and code for the Raspberry Pi Pico
+### Firmware
+This folder contains a compiled binary file in uf2 format which can be directly uploaded to the Pi Pico. See Notes
 ### eCAD
 This folder contains 2 Altium Designer project folders for the Application Board and Beam Brake.
 
