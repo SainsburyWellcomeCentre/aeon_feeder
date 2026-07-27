@@ -1,0 +1,21 @@
+# Temporary / backup files
+source/ForageFeeder.cpp.bak
+
+# Build artifacts
+build
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.dir
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+*.d
+
+# FetchContent / downloaded dependency directories
+_deps

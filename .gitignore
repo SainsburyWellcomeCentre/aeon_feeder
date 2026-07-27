@@ -1,0 +1,21 @@
+# CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+build/
+_deps/
+
+# Generated binaries
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+*.d
+
+# Dependency download directories
+Firmware/_deps/
+
+# Editor files
+.vscode/
