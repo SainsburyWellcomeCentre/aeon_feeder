@@ -6,7 +6,7 @@ Complete project repository for the underground feeder used in project Aeon.
 
 ## Build your own
 
-Check out the **[latest release](https://github.com/SainsburyWellcomeCentre/aeon_feeder/releases/latest)** for production Gerbers, BOM, and assembly drawings to build your own beambreak filter.
+Check out the **[latest release](https://github.com/SainsburyWellcomeCentre/aeon_feeder/releases/latest)** for production Gerbers, BOM, and assembly drawings to build your own underground feeder.
 
 ## Folder Structure
 
