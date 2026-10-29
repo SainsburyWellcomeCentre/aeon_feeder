@@ -1,2 +1,0 @@
-add_subdirectory(pid)
-add_subdirectory(pio_quad_encoder)
