@@ -9,7 +9,7 @@ TRQ_LIM = const(0xC8)
 VEL_LIM = const(0xFF)
 
 TRQ_DEFAULT = const(150)
-VEL_DEFAULT = const(6)
+VEL_DEFAULT = const(15)
 VEL_STANDBY = const(25)
 
 IDLE = const(0x00)

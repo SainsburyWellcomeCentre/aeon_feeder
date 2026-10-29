@@ -1,0 +1,36 @@
+%YAML 1.1
+---
+# yaml-language-server: $schema=https://harp-tech.org/draft-02/schema/device.json
+device: AeonFeederV2
+whoAmI: 3002
+firmwareVersion: "2.0"
+hardwareTargets: "2.0"
+registers:
+  BeamBreakState:
+    address: 32
+    type: U8
+    access: Event
+    description: Reflects the state of infrared beam break, sends the value when the beam break status changed.
+  DeliverPellet:
+    address: 33
+    type: U8
+    access: Write
+    description: Specifies the device deliver a pellet when the value is set greater than 0.
+  DeviceStatus:
+    address: 34
+    type: U8
+    access: Event
+    maskType: Status
+    description: Event register that reflects the status of the device.
+  MagneticEncoder:
+    address: 35
+    type: U16
+    access: Event
+    description: Fixed time event generated with the latest read from the magnetic encoder in 16-bit resolution.
+
+bitMasks:
+  Status:
+    description: The device status.
+    bits:
+      Moving: 0x1
+      Error: 0x2

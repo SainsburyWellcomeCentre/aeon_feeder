@@ -1,5 +1,4 @@
 import asyncio
-import sys
 
 import micropython
 from machine import ADC, PWM, Pin, UART
@@ -24,10 +23,10 @@ from microharp.registers import R_HARP_VERSION_H, R_HARP_VERSION_L
 
 
 SAMPLE_PERIOD_MS = const(10)
-ADDR_STATUS = 0x20
-ADDR_ENCODER = 0x21
-ADDR_IR_BEAM = 0x22
-ADDR_DELIVERY = 0x23
+ADDR_IR_BEAM = const(0x20)
+ADDR_DELIVER = const(0x21)
+ADDR_STATUS = const(0x22)
+ADDR_ENCODER = const(0x23)
 
     
 errorLED = Pin(21, Pin.OUT, value=1)
@@ -71,7 +70,7 @@ async def worker():
 
 device.add_u8(ADDR_STATUS, access=EVENT, name="status")
 device.add_u16(ADDR_ENCODER, access=EVENT, name="Encoder")
-device.add_u8(ADDR_DELIVERY, access=WRITE_ONLY, name="Delivery")
+device.add_u8(ADDR_DELIVER, access=WRITE_ONLY, name="Delivery")
 
 device.bind_pin_event(
     irBeam,
@@ -94,12 +93,15 @@ def callback(pin):
 
 trigger.irq(handler=callback, trigger=Pin.IRQ_FALLING, hard=True)
 
-@device.on_write(address=ADDR_DELIVERY, payload_type=PT_U8, name="Delivery")
+@device.on_write(address=ADDR_DELIVER, payload_type=PT_U8, name="Delivery")
 async def _deliver(reg, payload):
     # DisableMotor is a state, not a one-off command. The disc does not
     # move until the host enables the motor again.
+    # await device.emit(ADDR_DELIVERY, payload, PT_U8)
+    reg.storage[0] = payload[0]
     if (not disc._ismoving) and (payload[0] > 0):
         disc.deliver()
+        
 
 @device.task
 async def _state_task():
